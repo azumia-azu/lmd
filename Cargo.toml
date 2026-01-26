@@ -1,0 +1,11 @@
+[package]
+name = "lmd"
+version = "0.1.0"
+edition = "2024"
+
+[build-dependencies]
+lalrpop = "0.22.2"
+
+[dependencies]
+logos = "0.16.0"
+lalrpop-util = "0.22.2"
