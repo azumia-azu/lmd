@@ -9,3 +9,4 @@ lalrpop = "0.22.2"
 [dependencies]
 logos = "0.16.0"
 lalrpop-util = "0.22.2"
+itertools = "*"
