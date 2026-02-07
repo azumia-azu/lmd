@@ -1,200 +1,55 @@
-use core::panic;
-use itertools::Itertools;
-use std::{cell::RefCell, collections::HashMap, fmt::Display, rc::Rc};
+use std::fmt::Display;
 
-/// AST
+/// Abstract Syntax Tree (AST) for Lmd
+/// Lmd 的 AST 定义了 Lmd 语言的语法结构。它包括以下几种表达式类型：
+/// - Literal: 表示一个字面量值，例如数字、字符串等.
+/// - Variable: 表示一个变量，通常是一个标识符.
+/// - Lambda abstraction: 表示一个匿名函数.
+/// - Application: 函数应用，表示将一个函数应用于一个参数.
+/// - Let: 表示一个 let 绑定.
+///
 #[derive(Clone, Debug)]
 pub enum Expr {
+    /// Literal: 表示一个字面量值，例如数字、字符串等。
     Literal(Literal),
+
+    /// Variable: 表示一个变量，通常是一个标识符。
     Var(String),
+
+    /// Lambda abstraction: 表示一个匿名函数，通常使用反斜杠（\）或 lambda 关键字来表示。
+    /// 例如，表达式 \x. x + 1 表示一个匿名函数，接受一个参数 x，并返回 x + 1 的结果。
+    /// 在 Lmd 中，lambda 表达式的优先级最低，这意味着在没有括号的情况下，lambda 表达式会绑定最松。例如，表达式 \x. f x 会被解析为 \x. (f x)，而不是 (\x. f
     Func(String, Box<Expr>),
+
+    /// Application: 函数应用，表示将一个函数应用于一个参数。
+    /// 例如，表达式 f x 表示将函数 f 应用于参数 x。
+    /// 在 Lmd 中，函数应用是左结合的，这意味着在没有括号的情况下，函数应用会从左到右进行解析。
+    /// 例如，表达式 f g x 会被解析为 (f g) x，而不是 f (g x)。因此，函数应用的优先级较高，原子
+    /// 表达式（如变量和字面量）绑定最紧，函数应用次之，lambda 表达式绑定最松。
     App(Box<Expr>, Box<Expr>),
+
+    /// Let: Lmd 中 的 let 为recursive let，允许在 let 定义中使用自己
+    /// 例如：let fact = \n. if n == 0 then 1 else n * fact (n - 1) in fact 5
+    /// 在这个例子中，fact 在自己的定义中被使用了，这就是 recursive let 的特点。
+    /// 如果不允许 recursive let，那么在 fact 的定义中就不能使用 fact，这样就无法定义递归函数了。
+    /// 因此，Lmd 中的 let 是 recursive let，这使得我们能够定义递归函数。
     Let(Vec<(String, Expr)>, Box<Expr>),
 }
 
-#[derive(Clone, Copy, Debug)]
+/// Literal: 表示一个字面量值，例如数字、字符串等。
+#[derive(Clone, Debug)]
 pub enum Literal {
     Int(isize),
+    Float(f64),
+    Str(&'static str),
 }
 
 impl Display for Literal {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Int(i) => write!(f, "{}", i),
-        }
-    }
-}
-
-pub fn show(expr: &Expr) -> String {
-    show_prec(expr, 0)
-}
-
-fn show_prec(expr: &Expr, prec: usize) -> String {
-    match expr {
-        Expr::Literal(l) => l.to_string(),
-        Expr::Var(v) => v.clone(),
-        Expr::Func(arg, body) => {
-            let s = format!("\\{}. {}", arg, show_prec(body, 0));
-            if prec > 0 { format!("({})", s) } else { s }
-        }
-        Expr::App(f, x) => {
-            // application is left-associative; atoms bind tight
-            let s = format!("{} {}", show_prec(f, 1), show_prec(x, 2));
-            if prec > 1 { format!("({})", s) } else { s }
-        }
-        Expr::Let(vars, body) => {
-            let lets = vars
-                .iter()
-                .map(|let_item| format!("{} = {};", let_item.0, show_prec(&let_item.1, 0)))
-                .join("");
-            format!("let {} in {{{}}}", lets, show_prec(body, 0))
-        }
-    }
-}
-
-#[derive(Clone, Debug)]
-pub struct Env {
-    parent: Option<Rc<Env>>,
-    value: RefCell<HashMap<String, Value>>,
-}
-
-impl Env {
-    pub fn new(parent: Option<Rc<Env>>, value: HashMap<String, Value>) -> Self {
-        Env {
-            parent,
-            value: RefCell::new(value),
-        }
-    }
-
-    fn get(&self, k: &str) -> Option<Value> {
-        if let Some(v) = self.value.borrow().get(k).cloned() {
-            Some(v)
-        } else {
-            self.parent.as_ref().and_then(|p| p.get(k))
-        }
-    }
-
-    fn insert(&self, k: String, v: Value) {
-        self.value.borrow_mut().insert(k, v);
-    }
-}
-
-// Eval
-#[derive(Clone, Debug)]
-pub enum Value {
-    Closure {
-        param: String,
-        body: Expr,
-        env: Rc<Env>,
-    },
-    Thunk(Rc<RefCell<Thunk>>),
-    Literal(Literal),
-}
-
-#[derive(Debug)]
-enum ThunkState {
-    Unevaluated,
-    Evaluating,
-    Evaluated(Value),
-}
-
-#[derive(Debug)]
-struct Thunk {
-    expr: Expr,
-    env: Rc<Env>,
-    state: ThunkState,
-}
-
-impl Thunk {
-    fn update_state(&mut self, state: ThunkState) {
-        self.state = state;
-    }
-}
-
-pub fn force(v: Value) -> Value {
-    match v {
-        Value::Thunk(cell) => {
-            match &cell.borrow().state {
-                ThunkState::Unevaluated => {}
-                ThunkState::Evaluated(v) => return v.clone(),
-                ThunkState::Evaluating => {
-                    panic!("blackhole: recursive thunk is forced while evaluationg")
-                }
-            }
-
-            cell.borrow_mut().update_state(ThunkState::Evaluating);
-
-            let (expr, env) = {
-                let t = cell.borrow();
-                (t.expr.clone(), t.env.clone())
-            };
-
-            let computed = eval(expr, env);
-
-            cell.borrow_mut()
-                .update_state(ThunkState::Evaluated(computed.clone()));
-            computed
-        }
-        other => other,
-    }
-}
-
-pub fn eval(e: Expr, env: Rc<Env>) -> Value {
-    match e {
-        Expr::Literal(l) => Value::Literal(l),
-        Expr::Var(name) => env
-            .get(&name)
-            .unwrap_or_else(|| panic!("unbound variable: {}", name)),
-        Expr::Func(arg, body) => Value::Closure {
-            param: arg,
-            body: *body,
-            env,
-        },
-        Expr::App(lhs, rhs) => {
-            let f = force(eval(*lhs, env.clone()));
-            match f {
-                Value::Closure {
-                    param,
-                    body,
-                    env: closure_env,
-                } => {
-                    let thunk = Value::Thunk(Rc::new(RefCell::new(Thunk {
-                        expr: *rhs,
-                        env: env.clone(),
-                        state: ThunkState::Unevaluated,
-                    })));
-
-                    let mut new_map = HashMap::new();
-                    new_map.insert(param, thunk);
-
-                    eval(body, Rc::new(Env::new(Some(closure_env.clone()), new_map)))
-                }
-                _ => panic!("attempted to apply a non-function expression."),
-            }
-        }
-        Expr::Let(vars, body) => {
-            let let_env = Rc::new(Env::new(Some(env.clone()), HashMap::new()));
-
-            let mut cells: HashMap<String, Rc<RefCell<Thunk>>> = HashMap::new();
-            for (name, _) in &vars {
-                let cell = Rc::new(RefCell::new(Thunk {
-                    expr: Expr::Literal(Literal::Int(0)),
-                    env: let_env.clone(),
-                    state: ThunkState::Unevaluated,
-                }));
-                let_env.insert(name.clone(), Value::Thunk(cell.clone()));
-                cells.insert(name.clone(), cell);
-            }
-
-            for (name, expr) in vars {
-                let cell = cells.remove(&name).unwrap();
-                let mut t = cell.borrow_mut();
-                t.expr = expr;
-                t.env = let_env.clone();
-                t.state = ThunkState::Unevaluated;
-            }
-
-            eval(*body, let_env)
+            Self::Float(fl) => write!(f, "{}", fl),
+            Self::Str(s) => write!(f, "\"{}\"", s),
         }
     }
 }

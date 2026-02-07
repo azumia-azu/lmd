@@ -1,28 +1,10 @@
-pub mod ast;
-use ast::{Env, Expr, Literal, eval, force, show};
+mod ast;
+mod eval;
+
 use std::collections::HashMap;
 use std::rc::Rc;
 
-fn new_int(i: isize) -> Expr {
-    Expr::Literal(Literal::Int(i))
-}
-
-// Usage
-fn new_var(name: &str) -> Expr {
-    Expr::Var(name.to_owned())
-}
-
-fn new_func(arg: &str, body: &Expr) -> Expr {
-    Expr::Func(arg.to_owned(), Box::new(body.clone()))
-}
-
-fn new_apply(lhs: &Expr, rhs: &Expr) -> Expr {
-    Expr::App(Box::new(lhs.clone()), Box::new(rhs.clone()))
-}
-
-fn new_bind(name: &str, value: Expr, body: &Expr) -> Expr {
-    Expr::Let(vec![(name.to_owned(), value)], Box::new(body.clone()))
-}
+use crate::eval::{Env, eval, force_whnf, new_apply, new_bind, new_func, new_int, new_var, show};
 
 fn main() {
     let simple_x = new_var("x");
@@ -33,7 +15,7 @@ fn main() {
     println!("{}", show(&id));
     println!("{}", show(&apply_id));
     println!(
-        "{:#?}",
-        force(eval(let_bind, Rc::new(Env::new(None, HashMap::new()))))
+        "{:?}",
+        force_whnf(eval(let_bind, Rc::new(Env::new(None, HashMap::new()))))
     )
 }
