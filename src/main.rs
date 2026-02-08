@@ -4,7 +4,9 @@ mod eval;
 use std::collections::HashMap;
 use std::rc::Rc;
 
-use crate::eval::{Env, eval, force_whnf, new_apply, new_bind, new_func, new_int, new_var, show};
+use crate::eval::{
+    Env, eval, force_whnf, new_apply, new_bind, new_func, new_int, new_var, show, show_value,
+};
 
 fn main() {
     let simple_x = new_var("x");
@@ -14,8 +16,6 @@ fn main() {
     println!("{}", show(&simple_x));
     println!("{}", show(&id));
     println!("{}", show(&apply_id));
-    println!(
-        "{:?}",
-        force_whnf(eval(let_bind, Rc::new(Env::new(None, HashMap::new()))))
-    )
+    let result = force_whnf(eval(let_bind, Rc::new(Env::new(None, HashMap::new()))));
+    println!("{}", show_value(&result))
 }

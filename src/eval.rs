@@ -90,6 +90,14 @@ pub enum Value {
     Literal(Literal),
 }
 
+pub fn show_value(v: &Value) -> String {
+    match v {
+        Value::Literal(l) => l.to_string(),
+        Value::Closure { .. } => "<closure>".to_owned(),
+        Value::Thunk(_) => "<thunk>".to_owned(),
+    }
+}
+
 #[derive(Debug)]
 enum ThunkState {
     Unevaluated,
@@ -111,30 +119,34 @@ impl Thunk {
 }
 
 pub fn force_whnf(v: Value) -> Value {
-    match v {
-        Value::Thunk(cell) => {
-            match &cell.borrow().state {
-                ThunkState::Unevaluated => {}
-                ThunkState::Evaluated(v) => return v.clone(),
-                ThunkState::Evaluating => {
-                    panic!("blackhole: recursive thunk is forced while evaluationg")
+    let mut cur = v;
+    loop {
+        match cur {
+            Value::Thunk(cell) => {
+                match &cell.borrow().state {
+                    ThunkState::Unevaluated => {}
+                    ThunkState::Evaluated(v) => return v.clone(),
+                    ThunkState::Evaluating => {
+                        panic!("blackhole: recursive thunk is forced while evaluationg")
+                    }
                 }
+
+                cell.borrow_mut().update_state(ThunkState::Evaluating);
+
+                let (expr, env) = {
+                    let t = cell.borrow();
+                    (t.expr.clone(), t.env.clone())
+                };
+
+                let computed = eval(expr, env);
+
+                cell.borrow_mut()
+                    .update_state(ThunkState::Evaluated(computed.clone()));
+
+                cur = computed;
             }
-
-            cell.borrow_mut().update_state(ThunkState::Evaluating);
-
-            let (expr, env) = {
-                let t = cell.borrow();
-                (t.expr.clone(), t.env.clone())
-            };
-
-            let computed = eval(expr, env);
-
-            cell.borrow_mut()
-                .update_state(ThunkState::Evaluated(computed.clone()));
-            computed
+            other => return other,
         }
-        other => other,
     }
 }
 
