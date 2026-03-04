@@ -8,5 +8,5 @@ lalrpop = "0.22.2"
 
 [dependencies]
 logos = "0.16.0"
-lalrpop-util = "0.22.2"
+lalrpop-util = { version = "0.22.2", features = ["lexer"]}
 itertools = "0.14.0"
