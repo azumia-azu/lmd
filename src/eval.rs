@@ -33,7 +33,7 @@ fn show_prec(expr: &Expr, prec: usize) -> String {
         Expr::Literal(l) => l.to_string(),
         Expr::Var(v) => v.clone(),
         Expr::Func(arg, body) => {
-            let s = format!("\\{}. {}", arg, show_prec(body, 0));
+            let s = format!("\\{} -> {}", arg, show_prec(body, 0));
             if prec > 0 { format!("({})", s) } else { s }
         }
         Expr::App(f, x) => {

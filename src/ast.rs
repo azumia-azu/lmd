@@ -41,7 +41,7 @@ pub enum Expr {
 pub enum Literal {
     Int(isize),
     Float(f64),
-    Str(&'static str),
+    Str(String),
 }
 
 impl Display for Literal {
