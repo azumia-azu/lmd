@@ -39,17 +39,30 @@ pub enum Expr {
 /// Literal: 表示一个字面量值，例如数字、字符串等。
 #[derive(Clone, Debug)]
 pub enum Literal {
+    Number(Number),
+    Str(String),
+}
+
+#[derive(Clone, Debug)]
+pub enum Number {
     Int(isize),
     Float(f64),
-    Str(String),
 }
 
 impl Display for Literal {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
+            Self::Number(n) => write!(f, "{}", n),
+            Self::Str(s) => write!(f, "\"{}\"", s),
+        }
+    }
+}
+
+impl Display for Number {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
             Self::Int(i) => write!(f, "{}", i),
             Self::Float(fl) => write!(f, "{}", fl),
-            Self::Str(s) => write!(f, "\"{}\"", s),
         }
     }
 }

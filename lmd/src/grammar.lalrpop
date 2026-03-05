@@ -1,0 +1,69 @@
+grammar;
+
+use crate::ast;
+
+pub Expr: ast::Expr = {
+    <e: LetExpr> => e,
+    <e: LambdaExpr> => e,
+    <e: AppExpr> => e,
+};
+
+LetExpr: ast::Expr = {
+    "let" <bindings: BindingList> "in" <body: Expr> => {
+        ast::Expr::Let(bindings, Box::new(body))
+    }
+}
+
+BindingList: Vec<(String, ast::Expr)> = {
+    <b:Binding> <rest:(";" <Binding>)*> <_trail:";"?> => {
+        let mut bindings = vec![b];
+        for b2 in rest {
+            bindings.push(b2);
+        }
+        bindings
+    }
+}
+
+Binding: (String, ast::Expr) = {
+    <id: Ident> "=" <expr: Expr> => (id, expr)
+};
+
+LambdaExpr: ast::Expr = {
+    "\\" <param: Ident> "->" <body: Expr> => {
+        ast::Expr::Func(param, Box::new(body))
+    }
+};
+
+AppExpr: ast::Expr = {
+    <head: Atom> <tail: Atom*> => {
+        tail.into_iter().fold(head, |acc, arg| {
+            ast::Expr::App(Box::new(acc), Box::new(arg))
+        })
+    }
+};
+
+Atom: ast::Expr = {
+    <l:Literal> => ast::Expr::Literal(l),
+    <i: Ident> => ast::Expr::Var(i),
+    "(" <e: Expr> ")" => e,
+    "{" <e: Expr> "}" => e,
+
+};
+
+Ident: String = <s:r"[a-zA-Z_][a-zA-Z0-9_]*"> => s.to_string();
+
+Num: ast::Number = {
+    <i: r"-?[0-9]+"> => ast::Number::Int(i.parse().unwrap()),
+    <f: r"-?[0-9]+\.[0-9]+"> => ast::Number::Float(f.parse().unwrap()),
+};
+
+String: String = <s:r#""([^"\\]|\\.)*""#> => {
+    let unescaped = &s[1..s.len() - 1]; // Remove the surrounding quotes
+    unescaped.replace("\\\"", "\"").replace("\\\\", "\\").to_string() // Handle escaped quotes and backslashes
+};
+
+Literal: ast::Literal = {
+    <n:Num> => ast::Literal::Number(n),
+    <s:String> => ast::Literal::Str(s),
+};
+

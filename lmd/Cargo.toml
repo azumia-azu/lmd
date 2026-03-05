@@ -1,0 +1,12 @@
+[package]
+name = "lmd-core"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[build-dependencies]
+lalrpop = "0.22.2"
+
+[dependencies]
+lalrpop-util = "0.23.0"
+eyre = "0.6"

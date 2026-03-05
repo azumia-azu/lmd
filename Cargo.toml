@@ -1,12 +1,14 @@
-[package]
-name = "lmd"
+[workspace]
+members = ["lmd", "repl"]
+default-members = ["repl"]
+resolver = "3"
+
+[workspace.package]
 version = "0.1.0"
 edition = "2024"
+license = "Apache-2.0"
+authors = ["AzumiA <hitrel@outlook.com>"]
 
-[build-dependencies]
-lalrpop = "0.22.2"
-
-[dependencies]
-logos = "0.16.0"
-lalrpop-util = { version = "0.22.2", features = ["lexer"]}
-itertools = "0.14.0"
+[workspace.dependencies]
+lmd-core = { path = "lmd" }
+lmd-repl = { path = "repl" }

@@ -1,27 +1,11 @@
 use itertools::Itertools;
+use eyre::{Result, bail, eyre};
 use std::{cell::RefCell, collections::HashMap, rc::Rc};
 
-use crate::ast::{Expr, Literal};
+use lmd_core::ast::{Expr, Literal, Number};
 
-pub fn new_int(i: isize) -> Expr {
-    Expr::Literal(Literal::Int(i))
-}
-
-// Usage
-pub fn new_var(name: &str) -> Expr {
-    Expr::Var(name.to_owned())
-}
-
-pub fn new_func(arg: &str, body: &Expr) -> Expr {
-    Expr::Func(arg.to_owned(), Box::new(body.clone()))
-}
-
-pub fn new_apply(lhs: &Expr, rhs: &Expr) -> Expr {
-    Expr::App(Box::new(lhs.clone()), Box::new(rhs.clone()))
-}
-
-pub fn new_bind(name: &str, value: Expr, body: &Expr) -> Expr {
-    Expr::Let(vec![(name.to_owned(), value)], Box::new(body.clone()))
+pub fn new_env() -> Rc<Env> {
+    Rc::new(Env::new(None, HashMap::new()))
 }
 
 pub fn show(expr: &Expr) -> String {
@@ -98,6 +82,12 @@ pub fn show_value(v: &Value) -> String {
     }
 }
 
+impl std::fmt::Display for Value {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", show_value(self))
+    }
+}
+
 #[derive(Debug)]
 enum ThunkState {
     Unevaluated,
@@ -118,16 +108,16 @@ impl Thunk {
     }
 }
 
-pub fn force_whnf(v: Value) -> Value {
+pub fn force_whnf(v: Value) -> Result<Value> {
     let mut cur = v;
     loop {
         match cur {
             Value::Thunk(cell) => {
                 match &cell.borrow().state {
                     ThunkState::Unevaluated => {}
-                    ThunkState::Evaluated(v) => return v.clone(),
+                    ThunkState::Evaluated(v) => return Ok(v.clone()),
                     ThunkState::Evaluating => {
-                        panic!("blackhole: recursive thunk is forced while evaluationg")
+                        bail!("blackhole: recursive thunk is forced while evaluationg")
                     }
                 }
 
@@ -138,31 +128,30 @@ pub fn force_whnf(v: Value) -> Value {
                     (t.expr.clone(), t.env.clone())
                 };
 
-                let computed = eval(expr, env);
+                let computed = eval(expr, env)?;
 
                 cell.borrow_mut()
                     .update_state(ThunkState::Evaluated(computed.clone()));
 
                 cur = computed;
             }
-            other => return other,
+            other => return Ok(other),
         }
     }
 }
 
-pub fn eval(e: Expr, env: Rc<Env>) -> Value {
+pub fn eval(e: Expr, env: Rc<Env>) -> Result<Value> {
     match e {
-        Expr::Literal(l) => Value::Literal(l),
+        Expr::Literal(l) => Ok(Value::Literal(l)),
         Expr::Var(name) => env
-            .get(&name)
-            .unwrap_or_else(|| panic!("unbound variable: {}", name)),
-        Expr::Func(arg, body) => Value::Closure {
+            .get(&name).ok_or_else(|| eyre!("unbound variable: {}", name)),
+        Expr::Func(arg, body) => Ok(Value::Closure {
             param: arg,
             body: *body,
             env,
-        },
+        }),
         Expr::App(lhs, rhs) => {
-            let f = force_whnf(eval(*lhs, env.clone()));
+            let f = force_whnf(eval(*lhs, env.clone())?)?;
             match f {
                 Value::Closure {
                     param,
@@ -180,7 +169,7 @@ pub fn eval(e: Expr, env: Rc<Env>) -> Value {
 
                     eval(body, Rc::new(Env::new(Some(closure_env.clone()), new_map)))
                 }
-                _ => panic!("attempted to apply a non-function expression."),
+                _ => bail!("attempted to apply a non-function expression."),
             }
         }
         Expr::Let(vars, body) => {
@@ -189,7 +178,7 @@ pub fn eval(e: Expr, env: Rc<Env>) -> Value {
             let mut cells: HashMap<String, Rc<RefCell<Thunk>>> = HashMap::new();
             for (name, _) in &vars {
                 let cell = Rc::new(RefCell::new(Thunk {
-                    expr: Expr::Literal(Literal::Int(0)),
+                    expr: Expr::Literal(Literal::Number(Number::Int(0))), // dummy
                     env: let_env.clone(),
                     state: ThunkState::Unevaluated,
                 }));
@@ -208,4 +197,9 @@ pub fn eval(e: Expr, env: Rc<Env>) -> Value {
             eval(*body, let_env)
         }
     }
+}
+
+
+mod test {
+
 }

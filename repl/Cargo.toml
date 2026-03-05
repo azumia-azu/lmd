@@ -1,0 +1,11 @@
+[package]
+name = "lmd-repl"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+
+[dependencies]
+lmd-core = { workspace = true }
+itertools = "0.14.0"
+eyre = "0.6"
