@@ -117,3 +117,156 @@ impl ParseError {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::ast::{Expr, Literal, Number};
+
+    fn assert_var(expr: &Expr, expected: &str) {
+        match expr {
+            Expr::Var(name) => assert_eq!(name, expected),
+            other => panic!("expected variable '{expected}', got {other:?}"),
+        }
+    }
+
+    fn assert_int(expr: &Expr, expected: isize) {
+        match expr {
+            Expr::Literal(Literal::Number(Number::Int(v))) => assert_eq!(*v, expected),
+            other => panic!("expected int literal {expected}, got {other:?}"),
+        }
+    }
+
+    fn assert_left_assoc_var_app(expr: &Expr, names: &[&str]) {
+        assert!(!names.is_empty(), "names must not be empty");
+        if names.len() == 1 {
+            assert_var(expr, names[0]);
+            return;
+        }
+
+        match expr {
+            Expr::App(lhs, rhs) => {
+                assert_var(rhs, names[names.len() - 1]);
+                assert_left_assoc_var_app(lhs, &names[..names.len() - 1]);
+            }
+            other => panic!("expected left-associated app chain, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parse_variable_identifier_success() {
+        let expr = parse("abc_1").unwrap();
+        assert_var(&expr, "abc_1");
+    }
+
+    #[test]
+    fn parse_application_left_associative() {
+        let expr = parse("f g x").unwrap();
+
+        match &expr {
+            Expr::App(fg, x) => {
+                assert_var(x, "x");
+                match fg.as_ref() {
+                    Expr::App(f, g) => {
+                        assert_var(f, "f");
+                        assert_var(g, "g");
+                    }
+                    other => panic!("expected nested application, got {other:?}"),
+                }
+            }
+            other => panic!("expected application expression, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parse_application_left_associative_table_driven() {
+        let cases = vec![
+            ("f g", vec!["f", "g"]),
+            ("f g x", vec!["f", "g", "x"]),
+            ("f g x y", vec!["f", "g", "x", "y"]),
+            ("a b c d e", vec!["a", "b", "c", "d", "e"]),
+        ];
+
+        for (input, chain) in cases {
+            let expr = parse(input).unwrap();
+            assert_left_assoc_var_app(&expr, &chain);
+        }
+    }
+
+    #[test]
+    fn parse_application_parentheses_override_left_associativity() {
+        let expr = parse("f (g x)").unwrap();
+
+        match &expr {
+            Expr::App(f, gx) => {
+                assert_var(f, "f");
+                match gx.as_ref() {
+                    Expr::App(g, x) => {
+                        assert_var(g, "g");
+                        assert_var(x, "x");
+                    }
+                    other => panic!("expected grouped right argument, got {other:?}"),
+                }
+            }
+            other => panic!("expected application expression, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parse_lambda_body_as_application() {
+        let expr = parse("\\x -> f x").unwrap();
+
+        match &expr {
+            Expr::Func(param, body) => {
+                assert_eq!(param, "x");
+                match body.as_ref() {
+                    Expr::App(f, x) => {
+                        assert_var(f, "f");
+                        assert_var(x, "x");
+                    }
+                    other => panic!("expected application in lambda body, got {other:?}"),
+                }
+            }
+            other => panic!("expected lambda expression, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parse_let_with_trailing_semicolon() {
+        let expr = parse("let x = 1; y = x; in y").unwrap();
+
+        match &expr {
+            Expr::Let(bindings, body) => {
+                assert_eq!(bindings.len(), 2);
+                assert_eq!(bindings[0].0, "x");
+                assert_int(&bindings[0].1, 1);
+                assert_eq!(bindings[1].0, "y");
+                assert_var(&bindings[1].1, "x");
+                assert_var(body, "y");
+            }
+            other => panic!("expected let expression, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn try_parse_reports_unexpected_eof_for_incomplete_lambda() {
+        let err = try_parse("\\x ->").unwrap_err();
+        assert_eq!(err.kind, ParseErrorKind::UnexpectedEof);
+        assert!(err.is_unexpected_eof());
+    }
+
+    #[test]
+    fn parse_reports_unexpected_token_for_invalid_start_token() {
+        let err = parse(")").unwrap_err();
+        assert_eq!(err.kind, ParseErrorKind::UnexpectedToken);
+        assert_eq!(err.location, 0);
+        assert!(err.found.is_some());
+    }
+
+    #[test]
+    fn try_parse_reports_unexpected_eof_for_empty_input() {
+        let err = try_parse("").unwrap_err();
+        assert_eq!(err.kind, ParseErrorKind::UnexpectedEof);
+        assert!(err.expected.iter().any(|token| token == "r#\"[a-zA-Z_][a-zA-Z0-9_]*\"#"));
+    }
+}

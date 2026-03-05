@@ -80,7 +80,6 @@ fn read_form(prompt: &str, cont_prompt: &str) -> eyre::Result<Option<String>> {
         }
 
     }
-    unimplemented!()
 }
 
 fn should_continue(src: &str) -> bool {

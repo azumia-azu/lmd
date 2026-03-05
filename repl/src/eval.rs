@@ -198,8 +198,76 @@ pub fn eval(e: Expr, env: Rc<Env>) -> Result<Value> {
         }
     }
 }
+#[cfg(test)]
+mod tests {
+    use super::*;
 
+    fn int_lit(v: isize) -> Expr {
+        Expr::Literal(Literal::Number(Number::Int(v)))
+    }
 
-mod test {
+    #[test]
+    fn show_app_nested_right_argument_adds_parentheses() {
+        let expr = Expr::App(
+            Box::new(Expr::Var("f".to_string())),
+            Box::new(Expr::App(
+                Box::new(Expr::Var("g".to_string())),
+                Box::new(Expr::Var("x".to_string())),
+            )),
+        );
 
+        assert_eq!(show(&expr), "f (g x)");
+    }
+
+    #[test]
+    fn eval_application_identity_function_returns_argument() {
+        let env = new_env();
+        let expr = Expr::App(
+            Box::new(Expr::Func("x".to_string(), Box::new(Expr::Var("x".to_string())))),
+            Box::new(int_lit(42)),
+        );
+
+        let value = eval(expr, env).unwrap();
+        let whnf = force_whnf(value).unwrap();
+        assert!(matches!(whnf, Value::Literal(Literal::Number(Number::Int(42)))));
+    }
+
+    #[test]
+    fn eval_let_empty_bindings_returns_body_value() {
+        let env = new_env();
+        let expr = Expr::Let(vec![], Box::new(int_lit(7)));
+
+        let value = eval(expr, env).unwrap();
+        let whnf = force_whnf(value).unwrap();
+        assert!(matches!(whnf, Value::Literal(Literal::Number(Number::Int(7)))));
+    }
+
+    #[test]
+    fn eval_unbound_variable_returns_error() {
+        let env = new_env();
+        let err = eval(Expr::Var("missing".to_string()), env).unwrap_err();
+        assert!(err.to_string().contains("unbound variable"));
+    }
+
+    #[test]
+    fn eval_applying_non_function_returns_error() {
+        let env = new_env();
+        let expr = Expr::App(Box::new(int_lit(1)), Box::new(int_lit(2)));
+
+        let err = eval(expr, env).unwrap_err();
+        assert!(err.to_string().contains("non-function"));
+    }
+
+    #[test]
+    fn force_whnf_thunk_in_evaluating_state_returns_blackhole_error() {
+        let env = new_env();
+        let thunk = Thunk {
+            expr: int_lit(1),
+            env,
+            state: ThunkState::Evaluating,
+        };
+
+        let err = force_whnf(Value::Thunk(Rc::new(RefCell::new(thunk)))).unwrap_err();
+        assert!(err.to_string().contains("blackhole"));
+    }
 }

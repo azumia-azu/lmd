@@ -1,6 +1,5 @@
 [workspace]
 members = ["lmd", "repl"]
-default-members = ["repl"]
 resolver = "3"
 
 [workspace.package]
