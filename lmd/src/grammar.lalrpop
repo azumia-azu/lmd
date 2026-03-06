@@ -5,7 +5,7 @@ use crate::ast;
 pub Expr: ast::Expr = {
     <e: LetExpr> => e,
     <e: LambdaExpr> => e,
-    <e: AppExpr> => e,
+    <e: AddExpr> => e,
 };
 
 LetExpr: ast::Expr = {
@@ -34,6 +34,36 @@ LambdaExpr: ast::Expr = {
     }
 };
 
+// AddExpr: ast::Expr = {
+//     <lhs: AddExpr> <op:AddOp> <rhs: FactorExpr> => {
+//         ast::mk_infix(op, lhs, rhs)
+//     },
+//     <a: FactorExpr> => a,
+// }
+
+// FactorExpr: ast::Expr = {
+//     <lhs: FactorExpr> <op:FactorOp> <rhs: AppExpr> => {
+//         ast::mk_infix(op, lhs, rhs)
+//     },
+//     <a: AppExpr> => a,
+// }
+
+AddExpr: ast::Expr = {
+    <head:FactorExpr> <tail:(AddOp FactorExpr)*> => {
+        tail.into_iter().fold(head, |lhs, (op, rhs)| {
+            ast::mk_infix(op, lhs, rhs)
+        })
+    }
+};
+
+FactorExpr: ast::Expr = {
+    <head:AppExpr> <tail:(FactorOp AppExpr)*> => {
+        tail.into_iter().fold(head, |lhs, (op, rhs)| {
+            ast::mk_infix(op, lhs, rhs)
+        })
+    }
+};
+
 AppExpr: ast::Expr = {
     <head: Atom> <tail: Atom*> => {
         tail.into_iter().fold(head, |acc, arg| {
@@ -45,6 +75,10 @@ AppExpr: ast::Expr = {
 Atom: ast::Expr = {
     <l:Literal> => ast::Expr::Literal(l),
     <i: Ident> => ast::Expr::Var(i),
+    "(" <op: AddOp> <arg: Expr> ")" => ast::Expr::App(Box::new(ast::Expr::Var(op)), Box::new(arg)),
+    "(" <op: FactorOp> <arg: Expr> ")" => ast::Expr::App(Box::new(ast::Expr::Var(op)), Box::new(arg)),
+    "(" <op: AddOp> ")" => ast::Expr::Var(op),
+    "(" <op: FactorOp> ")" => ast::Expr::Var(op),
     "(" <e: Expr> ")" => e,
     "{" <e: Expr> "}" => e,
 
@@ -67,3 +101,12 @@ Literal: ast::Literal = {
     <s:String> => ast::Literal::Str(s),
 };
 
+AddOp: String = {
+    "+" => "+".to_string(),
+    "-" => "-".to_string(),
+};
+
+FactorOp: String = {
+    "*" => "*".to_string(),
+    "/" => "/".to_string(),
+}

@@ -1,12 +1,16 @@
 use itertools::Itertools;
 use eyre::{Result, bail, eyre};
-use std::{cell::RefCell, collections::HashMap, rc::Rc};
+use std::{cell::RefCell, collections::HashMap, fmt::Display, rc::Rc};
 
 use lmd_core::ast::{Expr, Literal, Number};
 
+use crate::builtins::{BuiltinFunction, apply_builtin_function, builtin_functions};
+
 pub fn new_env() -> Rc<Env> {
-    Rc::new(Env::new(None, HashMap::new()))
+    Rc::new(Env::new(None, builtin_functions()))
 }
+
+
 
 pub fn show(expr: &Expr) -> String {
     show_prec(expr, 0)
@@ -71,7 +75,8 @@ pub enum Value {
         env: Rc<Env>,
     },
     Thunk(Rc<RefCell<Thunk>>),
-    Literal(Literal),
+    Literal(Literal), 
+    BuiltinFunction(BuiltinFunction),
 }
 
 pub fn show_value(v: &Value) -> String {
@@ -79,6 +84,7 @@ pub fn show_value(v: &Value) -> String {
         Value::Literal(l) => l.to_string(),
         Value::Closure { .. } => "<closure>".to_owned(),
         Value::Thunk(_) => "<thunk>".to_owned(),
+        Value::BuiltinFunction(b) => format!("{}", b),
     }
 }
 
@@ -87,6 +93,8 @@ impl std::fmt::Display for Value {
         write!(f, "{}", show_value(self))
     }
 }
+
+
 
 #[derive(Debug)]
 enum ThunkState {
@@ -169,6 +177,10 @@ pub fn eval(e: Expr, env: Rc<Env>) -> Result<Value> {
 
                     eval(body, Rc::new(Env::new(Some(closure_env.clone()), new_map)))
                 }
+                Value::BuiltinFunction(builtin) => {
+                    let arg = force_whnf(eval(*rhs, env.clone())?)?;
+                    apply_builtin_function(builtin, arg)
+                },
                 _ => bail!("attempted to apply a non-function expression."),
             }
         }

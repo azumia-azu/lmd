@@ -1,3 +1,4 @@
+mod builtins;
 mod eval;
 mod repl;
 

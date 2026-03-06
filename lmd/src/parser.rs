@@ -269,4 +269,95 @@ mod tests {
         assert_eq!(err.kind, ParseErrorKind::UnexpectedEof);
         assert!(err.expected.iter().any(|token| token == "r#\"[a-zA-Z_][a-zA-Z0-9_]*\"#"));
     }
+
+    #[test]
+    fn parse_negative_integer_literal() {
+        let expr = parse("-42").unwrap();
+        assert_int(&expr, -42);
+    }
+
+    #[test]
+    fn parse_infix_addition_desugars_to_operator_application() {
+        let expr = parse("1+2").unwrap();
+        match &expr {
+            Expr::App(f1, rhs) => {
+                assert_int(rhs, 2);
+                match f1.as_ref() {
+                    Expr::App(op, lhs) => {
+                        assert_var(op, "+");
+                        assert_int(lhs, 1);
+                    }
+                    other => panic!("expected operator application head, got {other:?}"),
+                }
+            }
+            other => panic!("expected application for infix addition, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parse_infix_precedence_mul_over_add() {
+        let expr = parse("1+2*3").unwrap();
+        match &expr {
+            Expr::App(f1, rhs_add) => {
+                match f1.as_ref() {
+                    Expr::App(op_add, lhs_add) => {
+                        assert_var(op_add, "+");
+                        assert_int(lhs_add, 1);
+                    }
+                    other => panic!("expected addition head, got {other:?}"),
+                }
+
+                match rhs_add.as_ref() {
+                    Expr::App(f2, rhs_mul) => {
+                        assert_int(rhs_mul, 3);
+                        match f2.as_ref() {
+                            Expr::App(op_mul, lhs_mul) => {
+                                assert_var(op_mul, "*");
+                                assert_int(lhs_mul, 2);
+                            }
+                            other => panic!("expected multiplication head, got {other:?}"),
+                        }
+                    }
+                    other => panic!("expected multiplication expression on add rhs, got {other:?}"),
+                }
+            }
+            other => panic!("expected addition expression, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parse_prefix_operator_partial_then_apply() {
+        let expr = parse("(+ 1) 2").unwrap();
+        match &expr {
+            Expr::App(f, rhs) => {
+                assert_int(rhs, 2);
+                match f.as_ref() {
+                    Expr::App(op, lhs) => {
+                        assert_var(op, "+");
+                        assert_int(lhs, 1);
+                    }
+                    other => panic!("expected partial prefix op as function, got {other:?}"),
+                }
+            }
+            other => panic!("expected final application, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parse_parenthesized_operator_full_application() {
+        let expr = parse("(+) 1 2").unwrap();
+        match &expr {
+            Expr::App(f, rhs) => {
+                assert_int(rhs, 2);
+                match f.as_ref() {
+                    Expr::App(op, lhs) => {
+                        assert_var(op, "+");
+                        assert_int(lhs, 1);
+                    }
+                    other => panic!("expected left-associated operator application, got {other:?}"),
+                }
+            }
+            other => panic!("expected application chain, got {other:?}"),
+        }
+    }
 }

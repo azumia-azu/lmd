@@ -66,3 +66,13 @@ impl Display for Number {
         }
     }
 }
+
+pub fn mk_infix(op: String, lhs: Expr, rhs: Expr) -> Expr {
+    Expr::App(
+        Box::new(Expr::App(
+            Box::new(Expr::Var(op)), 
+            Box::new(lhs)
+        )),
+        Box::new(rhs),
+    )
+}
