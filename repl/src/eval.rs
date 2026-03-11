@@ -1,6 +1,6 @@
 use itertools::Itertools;
 use eyre::{Result, bail, eyre};
-use std::{cell::RefCell, collections::HashMap, fmt::Display, rc::Rc};
+use std::{cell::RefCell, collections::HashMap, rc::Rc};
 
 use lmd_core::ast::{Expr, Literal, Number};
 
@@ -10,8 +10,7 @@ pub fn new_env() -> Rc<Env> {
     Rc::new(Env::new(None, builtin_functions()))
 }
 
-
-
+#[allow(dead_code)]
 pub fn show(expr: &Expr) -> String {
     show_prec(expr, 0)
 }
