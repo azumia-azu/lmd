@@ -1,6 +1,7 @@
 [workspace]
 members = ["lmd", "repl"]
 resolver = "3"
+license = "MIT"
 
 [workspace.package]
 version = "0.1.0"
