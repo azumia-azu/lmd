@@ -360,4 +360,117 @@ mod tests {
             other => panic!("expected application chain, got {other:?}"),
         }
     }
+
+    #[test]
+    fn parse_boolean_literals() {
+        let expr_true = parse("true").unwrap();
+        assert!(matches!(expr_true, Expr::Literal(Literal::Bool(true))));
+
+        let expr_false = parse("false").unwrap();
+        assert!(matches!(expr_false, Expr::Literal(Literal::Bool(false))));
+    }
+
+    #[test]
+    fn parse_if_expression_with_boolean_condition() {
+        let expr = parse("if true then 1 else 2").unwrap();
+        match expr {
+            Expr::If {
+                cond,
+                then_branch,
+                else_branch,
+            } => {
+                assert!(matches!(*cond, Expr::Literal(Literal::Bool(true))));
+                assert_int(&then_branch, 1);
+                assert_int(&else_branch, 2);
+            }
+            other => panic!("expected if expression, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parse_if_expression_with_grouped_branch_expression() {
+        let expr = parse("if true then {1+2} else {3+4}").unwrap();
+        match expr {
+            Expr::If {
+                cond,
+                then_branch,
+                else_branch,
+            } => {
+                assert!(matches!(*cond, Expr::Literal(Literal::Bool(true))));
+                assert!(matches!(*then_branch, Expr::App(_, _)));
+                assert!(matches!(*else_branch, Expr::App(_, _)));
+            }
+            other => panic!("expected if expression, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn try_parse_reports_unexpected_eof_for_incomplete_if_expression() {
+        let err = try_parse("if true then 1 else").unwrap_err();
+        assert_eq!(err.kind, ParseErrorKind::UnexpectedEof);
+        assert!(err.is_unexpected_eof());
+    }
+
+    #[test]
+    fn parse_if_expression_with_non_grouped_expression_branches() {
+        let expr = parse("if true then 1+2 else 3+4").unwrap();
+        match expr {
+            Expr::If {
+                cond,
+                then_branch,
+                else_branch,
+            } => {
+                assert!(matches!(*cond, Expr::Literal(Literal::Bool(true))));
+                assert!(matches!(*then_branch, Expr::App(_, _)));
+                assert!(matches!(*else_branch, Expr::App(_, _)));
+            }
+            other => panic!("expected if expression, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parse_if_expression_with_expression_condition() {
+        let expr = parse("if 1+2 then 3 else 4").unwrap();
+        match expr {
+            Expr::If {
+                cond,
+                then_branch,
+                else_branch,
+            } => {
+                assert!(matches!(*cond, Expr::App(_, _)));
+                assert_int(&then_branch, 3);
+                assert_int(&else_branch, 4);
+            }
+            other => panic!("expected if expression, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parse_application_with_if_as_argument() {
+        let expr = parse("f (if true then 1 else 2)").unwrap();
+        match expr {
+            Expr::App(f, arg) => {
+                assert_var(&f, "f");
+                assert!(matches!(*arg, Expr::If { .. }));
+            }
+            other => panic!("expected application expression, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parse_nested_if_expression_in_then_branch() {
+        let expr = parse("if true then if false then 1 else 2 else 3").unwrap();
+        match expr {
+            Expr::If {
+                cond,
+                then_branch,
+                else_branch,
+            } => {
+                assert!(matches!(*cond, Expr::Literal(Literal::Bool(true))));
+                assert!(matches!(*then_branch, Expr::If { .. }));
+                assert_int(&else_branch, 3);
+            }
+            other => panic!("expected outer if expression, got {other:?}"),
+        }
+    }
 }

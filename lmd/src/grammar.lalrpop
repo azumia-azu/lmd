@@ -6,7 +6,14 @@ pub Expr: ast::Expr = {
     <e: LetExpr> => e,
     <e: LambdaExpr> => e,
     <e: AddExpr> => e,
+    <e: IfExpr> => e,
 };
+
+IfExpr: ast::Expr = {
+    "if" <cond: Expr> "then" <then_branch: Expr> "else" <else_branch: Expr> => {
+        ast::Expr::If { cond: Box::new(cond), then_branch: Box::new(then_branch), else_branch: Box::new(else_branch) }
+    }
+}
 
 LetExpr: ast::Expr = {
     "let" <bindings: BindingList> "in" <body: Expr> => {
@@ -33,20 +40,6 @@ LambdaExpr: ast::Expr = {
         ast::Expr::Func(param, Box::new(body))
     }
 };
-
-// AddExpr: ast::Expr = {
-//     <lhs: AddExpr> <op:AddOp> <rhs: FactorExpr> => {
-//         ast::mk_infix(op, lhs, rhs)
-//     },
-//     <a: FactorExpr> => a,
-// }
-
-// FactorExpr: ast::Expr = {
-//     <lhs: FactorExpr> <op:FactorOp> <rhs: AppExpr> => {
-//         ast::mk_infix(op, lhs, rhs)
-//     },
-//     <a: AppExpr> => a,
-// }
 
 AddExpr: ast::Expr = {
     <head:FactorExpr> <tail:(AddOp FactorExpr)*> => {
@@ -99,6 +92,8 @@ String: String = <s:r#""([^"\\]|\\.)*""#> => {
 Literal: ast::Literal = {
     <n:Num> => ast::Literal::Number(n),
     <s:String> => ast::Literal::Str(s),
+    "true" => ast::Literal::Bool(true),
+    "false" => ast::Literal::Bool(false),
 };
 
 AddOp: String = {

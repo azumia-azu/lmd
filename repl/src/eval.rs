@@ -34,6 +34,10 @@ fn show_prec(expr: &Expr, prec: usize) -> String {
                 .map(|let_item| format!("{} = {};", let_item.0, show_prec(&let_item.1, 0)))
                 .join("");
             format!("let {} in {{{}}}", lets, show_prec(body, 0))
+        },
+        Expr::If { cond, then_branch, else_branch } => {
+            let s = format!("if {} then {{{}}} else {{{}}}", show_prec(cond, 0), show_prec(then_branch, 0), show_prec(else_branch, 0));
+            if prec > 0 { format!("({})", s) } else { s }
         }
     }
 }
@@ -206,15 +210,31 @@ pub fn eval(e: Expr, env: Rc<Env>) -> Result<Value> {
             }
 
             eval(*body, let_env)
+        },
+        Expr::If { cond, then_branch, else_branch } => {
+            let cond_val = force_whnf(eval(*cond, env.clone())?)?;
+            match cond_val {
+                Value::Literal(Literal::Bool(true)) => eval(*then_branch, env),
+                Value::Literal(Literal::Bool(false)) => eval(*else_branch, env),
+                _ => bail!("condition of if expression must be a boolean literal"),
+            }
         }
     }
 }
 #[cfg(test)]
 mod tests {
     use super::*;
+    use lmd_core::parser::parse;
 
     fn int_lit(v: isize) -> Expr {
         Expr::Literal(Literal::Number(Number::Int(v)))
+    }
+
+    fn eval_src_to_whnf(src: &str) -> Result<Value> {
+        let env = new_env();
+        let expr = parse(src).map_err(|e| eyre!("parse error: {e}"))?;
+        let value = eval(expr, env)?;
+        force_whnf(value)
     }
 
     #[test]
@@ -280,5 +300,96 @@ mod tests {
 
         let err = force_whnf(Value::Thunk(Rc::new(RefCell::new(thunk)))).unwrap_err();
         assert!(err.to_string().contains("blackhole"));
+    }
+
+    #[test]
+    fn eval_if_true_returns_then_branch_value() {
+        let env = new_env();
+        let expr = Expr::If {
+            cond: Box::new(Expr::Literal(Literal::Bool(true))),
+            then_branch: Box::new(int_lit(11)),
+            else_branch: Box::new(int_lit(22)),
+        };
+
+        let value = eval(expr, env).unwrap();
+        let whnf = force_whnf(value).unwrap();
+        assert!(matches!(whnf, Value::Literal(Literal::Number(Number::Int(11)))));
+    }
+
+    #[test]
+    fn eval_if_false_returns_else_branch_value() {
+        let env = new_env();
+        let expr = Expr::If {
+            cond: Box::new(Expr::Literal(Literal::Bool(false))),
+            then_branch: Box::new(int_lit(11)),
+            else_branch: Box::new(int_lit(22)),
+        };
+
+        let value = eval(expr, env).unwrap();
+        let whnf = force_whnf(value).unwrap();
+        assert!(matches!(whnf, Value::Literal(Literal::Number(Number::Int(22)))));
+    }
+
+    #[test]
+    fn eval_if_non_boolean_condition_returns_error() {
+        let env = new_env();
+        let expr = Expr::If {
+            cond: Box::new(int_lit(1)),
+            then_branch: Box::new(int_lit(11)),
+            else_branch: Box::new(int_lit(22)),
+        };
+
+        let err = eval(expr, env).unwrap_err();
+        assert!(err
+            .to_string()
+            .contains("condition of if expression must be a boolean literal"));
+    }
+
+    #[test]
+    fn eval_if_true_does_not_evaluate_else_branch() {
+        let env = new_env();
+        let expr = Expr::If {
+            cond: Box::new(Expr::Literal(Literal::Bool(true))),
+            then_branch: Box::new(int_lit(7)),
+            else_branch: Box::new(Expr::App(Box::new(int_lit(1)), Box::new(int_lit(2)))),
+        };
+
+        let value = eval(expr, env).unwrap();
+        let whnf = force_whnf(value).unwrap();
+        assert!(matches!(whnf, Value::Literal(Literal::Number(Number::Int(7)))));
+    }
+
+    #[test]
+    fn eval_if_false_does_not_evaluate_then_branch() {
+        let env = new_env();
+        let expr = Expr::If {
+            cond: Box::new(Expr::Literal(Literal::Bool(false))),
+            then_branch: Box::new(Expr::App(Box::new(int_lit(1)), Box::new(int_lit(2)))),
+            else_branch: Box::new(int_lit(9)),
+        };
+
+        let value = eval(expr, env).unwrap();
+        let whnf = force_whnf(value).unwrap();
+        assert!(matches!(whnf, Value::Literal(Literal::Number(Number::Int(9)))));
+    }
+
+    #[test]
+    fn eval_parsed_if_expression_with_non_grouped_expression_branches() {
+        let whnf = eval_src_to_whnf("if true then 1+2 else 3+4").unwrap();
+        assert!(matches!(whnf, Value::Literal(Literal::Number(Number::Int(3)))));
+    }
+
+    #[test]
+    fn eval_parsed_if_expression_with_expression_condition_returns_error() {
+        let err = eval_src_to_whnf("if 1+2 then 3 else 4").unwrap_err();
+        assert!(err
+            .to_string()
+            .contains("condition of if expression must be a boolean literal"));
+    }
+
+    #[test]
+    fn eval_parsed_nested_if_expression_in_then_branch() {
+        let whnf = eval_src_to_whnf("if true then if false then 1 else 2 else 3").unwrap();
+        assert!(matches!(whnf, Value::Literal(Literal::Number(Number::Int(2)))));
     }
 }
