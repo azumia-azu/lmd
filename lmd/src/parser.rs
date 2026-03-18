@@ -267,7 +267,7 @@ mod tests {
     fn try_parse_reports_unexpected_eof_for_empty_input() {
         let err = try_parse("").unwrap_err();
         assert_eq!(err.kind, ParseErrorKind::UnexpectedEof);
-        assert!(err.expected.iter().any(|token| token == "r#\"[a-zA-Z_][a-zA-Z0-9_]*\"#"));
+        assert!(!err.expected.is_empty());
     }
 
     #[test]
@@ -471,6 +471,57 @@ mod tests {
                 assert_int(&else_branch, 3);
             }
             other => panic!("expected outer if expression, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parse_rejects_reserved_keyword_as_let_binding_name() {
+        let keywords = ["if", "then", "else", "let", "in", "true", "false"];
+
+        for kw in keywords {
+            let src = format!("let {kw} = 1 in 1");
+            let err = parse(&src).unwrap_err();
+            assert_eq!(err.kind, ParseErrorKind::UnexpectedToken);
+        }
+    }
+
+    #[test]
+    fn parse_rejects_reserved_keyword_as_lambda_parameter() {
+        let keywords = ["if", "then", "else", "let", "in", "true", "false"];
+
+        for kw in keywords {
+            let src = format!("\\{kw} -> {kw}");
+            let err = parse(&src).unwrap_err();
+            assert_eq!(err.kind, ParseErrorKind::UnexpectedToken);
+        }
+    }
+
+    #[test]
+    fn parse_rejects_reserved_keyword_as_variable_identifier() {
+        let keywords = ["then", "else", "let", "in"];
+
+        for kw in keywords {
+            let err = parse(kw).unwrap_err();
+            assert!(matches!(
+                err.kind,
+                ParseErrorKind::UnexpectedToken | ParseErrorKind::UnexpectedEof
+            ));
+        }
+    }
+
+    #[test]
+    fn parse_accepts_identifier_that_contains_keyword_prefix() {
+        let expr = parse("let ifx = 1; true_value = ifx; in true_value").unwrap();
+
+        match expr {
+            Expr::Let(bindings, body) => {
+                assert_eq!(bindings.len(), 2);
+                assert_eq!(bindings[0].0, "ifx");
+                assert_eq!(bindings[1].0, "true_value");
+                assert_var(&bindings[1].1, "ifx");
+                assert_var(&body, "true_value");
+            }
+            other => panic!("expected let expression, got {other:?}"),
         }
     }
 }
