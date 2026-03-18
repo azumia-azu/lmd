@@ -267,7 +267,9 @@ mod tests {
     fn try_parse_reports_unexpected_eof_for_empty_input() {
         let err = try_parse("").unwrap_err();
         assert_eq!(err.kind, ParseErrorKind::UnexpectedEof);
-        assert!(!err.expected.is_empty());
+        println!("err={err:?}");
+        assert!(err.expected.iter().any(|t| t == "\"let\""));
+        assert!(err.expected.iter().any(|t| t == "\"\\\\\""));
     }
 
     #[test]
@@ -498,14 +500,17 @@ mod tests {
 
     #[test]
     fn parse_rejects_reserved_keyword_as_variable_identifier() {
-        let keywords = ["then", "else", "let", "in"];
+        let cases = [
+            ("then", ParseErrorKind::UnexpectedToken),
+            ("else", ParseErrorKind::UnexpectedToken),
+            ("in", ParseErrorKind::UnexpectedToken),
+            ("if", ParseErrorKind::UnexpectedEof),
+            ("let", ParseErrorKind::UnexpectedEof),
+        ];
 
-        for kw in keywords {
+        for (kw, expected_kind) in cases {
             let err = parse(kw).unwrap_err();
-            assert!(matches!(
-                err.kind,
-                ParseErrorKind::UnexpectedToken | ParseErrorKind::UnexpectedEof
-            ));
+            assert_eq!(err.kind, expected_kind, "keyword={kw}, err={err:?}");
         }
     }
 
