@@ -7,6 +7,7 @@ use std::fmt::Display;
 /// - Lambda abstraction: 表示一个匿名函数.
 /// - Application: 函数应用，表示将一个函数应用于一个参数.
 /// - Let: 表示一个 let 绑定.
+/// - If: 表示一个条件表达式.
 ///
 #[derive(Clone, Debug)]
 pub enum Expr {
@@ -34,6 +35,12 @@ pub enum Expr {
     /// 如果不允许 recursive let，那么在 fact 的定义中就不能使用 fact，这样就无法定义递归函数了。
     /// 因此，Lmd 中的 let 是 recursive let，这使得我们能够定义递归函数。
     Let(Vec<(String, Expr)>, Box<Expr>),
+
+    /// If: 表示一个条件表达式，通常使用 if 关键字来表示。
+    /// 例如，表达式 if x > 0 then "positive" else "non-positive" 表示一个条件表达式，根据 x 的值返回不同的字符串。
+    /// 在 Lmd 中，if 表达式的优先级较高，这意味着在没有括号的情况下，if 表达式会绑定较紧。例如，表达式 if x > 0 then "positive" else "non-positive" + "!" 会被解析为 if x > 0 then "positive" else ("non-positive" + "!")，而不是 (if x > 0 then "positive" else "non-positive") + "!"。
+    /// 因此，if 表达式的优先级较高，原子表达式（如变量和字面量）绑定最紧，if 表达式次之，函数应用绑定更松，lambda 表达式绑定最松。
+    If{ cond: Box<Expr>, then_branch: Box<Expr>, else_branch: Box<Expr> },
 }
 
 /// Literal: 表示一个字面量值，例如数字、字符串等。
@@ -41,6 +48,7 @@ pub enum Expr {
 pub enum Literal {
     Number(Number),
     Str(String),
+    Bool(bool),
 }
 
 #[derive(Clone, Debug)]
@@ -54,6 +62,7 @@ impl Display for Literal {
         match self {
             Self::Number(n) => write!(f, "{}", n),
             Self::Str(s) => write!(f, "\"{}\"", s),
+            Self::Bool(b) => write!(f, "{}", b),
         }
     }
 }
