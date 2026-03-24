@@ -17,7 +17,7 @@ match {
 pub Expr: ast::Expr = {
     <e: LetExpr> => e,
     <e: LambdaExpr> => e,
-    <e: AddExpr> => e,
+    <e: OrExpr> => e,
     <e: IfExpr> => e,
 };
 
@@ -53,6 +53,45 @@ LambdaExpr: ast::Expr = {
     }
 };
 
+OrExpr: ast::Expr = {
+    <head: AndExpr> <tail:(OrOp AndExpr)*> => {
+        tail.into_iter().fold(head, |lhs, (op, rhs)| {
+            ast::mk_infix(op, lhs, rhs)
+        })
+    }
+};
+
+AndExpr: ast::Expr = {
+    <head: NotExpr> <tail:(AndOp NotExpr)*> => {
+        tail.into_iter().fold(head, |lhs, (op, rhs)| {
+            ast::mk_infix(op, lhs, rhs)
+        })
+    }
+};
+
+NotExpr: ast::Expr = {
+    <op: NotOp> <expr: NotExpr> => {
+        ast::Expr::App(Box::new(ast::Expr::Var(op)), Box::new(expr))
+    },
+    <e: EqualExpr> => e,
+};
+
+EqualExpr: ast::Expr = {
+    <head: CompareExpr> <tail:(EqualOp CompareExpr)*> => {
+        tail.into_iter().fold(head, |lhs, (op, rhs)| {
+            ast::mk_infix(op, lhs, rhs)
+        })
+    }
+};
+
+CompareExpr: ast::Expr = {
+    <head:AddExpr> <tail:(CompareOp AddExpr)*> => {
+        tail.into_iter().fold(head, |lhs, (op, rhs)| {
+            ast::mk_infix(op, lhs, rhs)
+        })
+    }
+};
+
 AddExpr: ast::Expr = {
     <head:FactorExpr> <tail:(AddOp FactorExpr)*> => {
         tail.into_iter().fold(head, |lhs, (op, rhs)| {
@@ -80,10 +119,8 @@ AppExpr: ast::Expr = {
 Atom: ast::Expr = {
     <l:Literal> => ast::Expr::Literal(l),
     <i: Ident> => ast::Expr::Var(i),
-    "(" <op: AddOp> <arg: Expr> ")" => ast::Expr::App(Box::new(ast::Expr::Var(op)), Box::new(arg)),
-    "(" <op: FactorOp> <arg: Expr> ")" => ast::Expr::App(Box::new(ast::Expr::Var(op)), Box::new(arg)),
-    "(" <op: AddOp> ")" => ast::Expr::Var(op),
-    "(" <op: FactorOp> ")" => ast::Expr::Var(op),
+    "(" <op: BinaryOp> <arg: Expr> ")" => ast::Expr::App(Box::new(ast::Expr::Var(op)), Box::new(arg)),
+    "(" <op: Operator> ")" => ast::Expr::Var(op),
     "(" <e: Expr> ")" => e,
     "{" <e: Expr> "}" => e,
 
@@ -106,6 +143,48 @@ Literal: ast::Literal = {
     <s:String> => ast::Literal::Str(s),
     "true" => ast::Literal::Bool(true),
     "false" => ast::Literal::Bool(false),
+};
+
+Operator: String = {
+    <op: BinaryOp> => op,
+    <op: UnaryOp> => op,
+};
+
+BinaryOp: String = {
+    <op:FactorOp> => op,
+    <op:AddOp> => op,
+    <op:CompareOp> => op,
+    <op:EqualOp> => op,
+    <op: AndOp> => op,
+    <op: OrOp> => op,
+};
+
+UnaryOp: String = {
+    <op:NotOp> => op,
+};
+
+OrOp: String = {
+    "||" => "||".to_string(),
+};
+
+AndOp: String = {
+    "&&" => "&&".to_string(),
+};
+
+NotOp: String = {
+    "!" => "!".to_string(),
+};
+
+EqualOp: String = {
+    "==" => "==".to_string(),
+    "!=" => "!=".to_string(),
+};
+
+CompareOp: String = {
+    "<" => "<".to_string(),
+    ">" => ">".to_string(),
+    "<=" => "<=".to_string(),
+    ">=" => ">=".to_string(),
 };
 
 AddOp: String = {
