@@ -40,7 +40,11 @@ pub enum Expr {
     /// 例如，表达式 if x > 0 then "positive" else "non-positive" 表示一个条件表达式，根据 x 的值返回不同的字符串。
     /// 在 Lmd 中，if 表达式的优先级较高，这意味着在没有括号的情况下，if 表达式会绑定较紧。例如，表达式 if x > 0 then "positive" else "non-positive" + "!" 会被解析为 if x > 0 then "positive" else ("non-positive" + "!")，而不是 (if x > 0 then "positive" else "non-positive") + "!"。
     /// 因此，if 表达式的优先级较高，原子表达式（如变量和字面量）绑定最紧，if 表达式次之，函数应用绑定更松，lambda 表达式绑定最松。
-    If{ cond: Box<Expr>, then_branch: Box<Expr>, else_branch: Box<Expr> },
+    If {
+        cond: Box<Expr>,
+        then_branch: Box<Expr>,
+        else_branch: Box<Expr>,
+    },
 }
 
 /// Literal: 表示一个字面量值，例如数字、字符串等。
@@ -78,10 +82,7 @@ impl Display for Number {
 
 pub fn mk_infix(op: String, lhs: Expr, rhs: Expr) -> Expr {
     Expr::App(
-        Box::new(Expr::App(
-            Box::new(Expr::Var(op)), 
-            Box::new(lhs)
-        )),
+        Box::new(Expr::App(Box::new(Expr::Var(op)), Box::new(lhs))),
         Box::new(rhs),
     )
 }

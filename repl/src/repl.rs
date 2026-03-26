@@ -1,4 +1,7 @@
-use std::{io::{self, Write}, rc::Rc};
+use std::{
+    io::{self, Write},
+    rc::Rc,
+};
 
 pub fn repl_loop(env: Rc<crate::eval::Env>) -> eyre::Result<()> {
     loop {
@@ -12,17 +15,13 @@ pub fn repl_loop(env: Rc<crate::eval::Env>) -> eyre::Result<()> {
         }
 
         match lmd_core::parser::parse(src_trimmed) {
-            Ok(expr) => {
-                match crate::eval::eval(expr, env.clone()) {
-                    Ok(v) => {
-                        match crate::eval::force_whnf(v) {
-                            Ok(v) => println!("{}", v),
-                            Err(e) => eprintln!("Evaluation error: {:?}", e),
-                        }
-                    },
+            Ok(expr) => match crate::eval::eval(expr, env.clone()) {
+                Ok(v) => match crate::eval::force_whnf(v) {
+                    Ok(v) => println!("{}", v),
                     Err(e) => eprintln!("Evaluation error: {:?}", e),
-                }
-            }
+                },
+                Err(e) => eprintln!("Evaluation error: {:?}", e),
+            },
             Err(e) => eprintln!("Parse error: {:?}", e),
         }
     }
@@ -71,14 +70,12 @@ fn read_form(prompt: &str, cont_prompt: &str) -> eyre::Result<Option<String>> {
             continue;
         }
 
-
-                // 看起来完整：尝试 parse
+        // 看起来完整：尝试 parse
         match lmd_core::parser::try_parse(buf.trim_end()) {
             Ok(()) => return Ok(Some(buf)),
             Err(e) if e.is_unexpected_eof() => continue, // 缺后续，继续读
-            Err(_) => return Ok(Some(buf)), // 非 EOF 错：交给外层报错并清 buffer
+            Err(_) => return Ok(Some(buf)),              // 非 EOF 错：交给外层报错并清 buffer
         }
-
     }
 }
 
@@ -138,5 +135,3 @@ fn balance_delims(src: &str) -> (i32, i32, i32, bool) {
 
     (par, bra, brk, in_str)
 }
-
-
