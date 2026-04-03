@@ -1,0 +1,83 @@
+name: lmd-language-release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+  BIN_NAME: lmd-repl
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Release ${{ matrix.target }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            archive_ext: tar.gz
+            bin_ext: ""
+          - os: macos-latest
+            target: aarch64-apple-darwin
+            archive_ext: tar.gz
+            bin_ext: ""
+          - os: macos-13
+            target: x86_64-apple-darwin
+            archive_ext: tar.gz
+            bin_ext: ""
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            archive_ext: zip
+            bin_ext: .exe
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Build release binary
+        run: cargo build --locked --release -p lmd-repl --target ${{ matrix.target }}
+
+      - name: Package archive (Unix)
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          asset="lmd-${GITHUB_REF_NAME}-${{ matrix.target }}"
+          mkdir -p "$asset"
+          cp "target/${{ matrix.target }}/release/${BIN_NAME}${{ matrix.bin_ext }}" "$asset/"
+          cp README.md LICENSE "$asset/"
+          tar -czf "${asset}.${{ matrix.archive_ext }}" "$asset"
+
+      - name: Package archive (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $asset = "lmd-$env:GITHUB_REF_NAME-${{ matrix.target }}"
+          New-Item -ItemType Directory -Path $asset | Out-Null
+          Copy-Item "target/${{ matrix.target }}/release/$env:BIN_NAME${{ matrix.bin_ext }}" $asset
+          Copy-Item "README.md","LICENSE" $asset
+          Compress-Archive -Path $asset -DestinationPath "$asset.${{ matrix.archive_ext }}"
+
+      - name: Upload packaged artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: lmd-${{ matrix.target }}
+          path: lmd-${{ github.ref_name }}-${{ matrix.target }}.${{ matrix.archive_ext }}
+
+      - name: Publish GitHub release assets
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: lmd-${{ github.ref_name }}-${{ matrix.target }}.${{ matrix.archive_ext }}
