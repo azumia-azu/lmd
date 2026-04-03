@@ -14,8 +14,8 @@ permissions:
   contents: write
 
 jobs:
-  release:
-    name: Release ${{ matrix.target }}
+  build:
+    name: Build ${{ matrix.target }}
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -76,8 +76,20 @@ jobs:
           name: lmd-${{ matrix.target }}
           path: lmd-${{ github.ref_name }}-${{ matrix.target }}.${{ matrix.archive_ext }}
 
+  publish:
+    name: Publish release
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download packaged artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: release-assets
+          pattern: lmd-*
+          merge-multiple: true
+
       - name: Publish GitHub release assets
-        if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
         with:
-          files: lmd-${{ github.ref_name }}-${{ matrix.target }}.${{ matrix.archive_ext }}
+          files: release-assets/*
