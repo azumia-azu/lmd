@@ -1,5 +1,5 @@
-use itertools::Itertools;
 use eyre::{Result, bail, eyre};
+use itertools::Itertools;
 use std::{cell::RefCell, collections::HashMap, rc::Rc};
 
 use lmd_core::ast::{Expr, Literal, Number};
@@ -34,9 +34,18 @@ fn show_prec(expr: &Expr, prec: usize) -> String {
                 .map(|let_item| format!("{} = {};", let_item.0, show_prec(&let_item.1, 0)))
                 .join("");
             format!("let {} in {{{}}}", lets, show_prec(body, 0))
-        },
-        Expr::If { cond, then_branch, else_branch } => {
-            let s = format!("if {} then {{{}}} else {{{}}}", show_prec(cond, 0), show_prec(then_branch, 0), show_prec(else_branch, 0));
+        }
+        Expr::If {
+            cond,
+            then_branch,
+            else_branch,
+        } => {
+            let s = format!(
+                "if {} then {{{}}} else {{{}}}",
+                show_prec(cond, 0),
+                show_prec(then_branch, 0),
+                show_prec(else_branch, 0)
+            );
             if prec > 0 { format!("({})", s) } else { s }
         }
     }
@@ -78,7 +87,7 @@ pub enum Value {
         env: Rc<Env>,
     },
     Thunk(Rc<RefCell<Thunk>>),
-    Literal(Literal), 
+    Literal(Literal),
     BuiltinFunction(BuiltinFunction),
 }
 
@@ -96,8 +105,6 @@ impl std::fmt::Display for Value {
         write!(f, "{}", show_value(self))
     }
 }
-
-
 
 #[derive(Debug)]
 enum ThunkState {
@@ -117,6 +124,14 @@ impl Thunk {
     fn update_state(&mut self, state: ThunkState) {
         self.state = state;
     }
+}
+
+pub fn mk_thunk(expr: Expr, env: Rc<Env>) -> Value {
+    Value::Thunk(Rc::new(RefCell::new(Thunk {
+        expr,
+        env,
+        state: ThunkState::Unevaluated,
+    })))
 }
 
 pub fn force_whnf(v: Value) -> Result<Value> {
@@ -155,7 +170,8 @@ pub fn eval(e: Expr, env: Rc<Env>) -> Result<Value> {
     match e {
         Expr::Literal(l) => Ok(Value::Literal(l)),
         Expr::Var(name) => env
-            .get(&name).ok_or_else(|| eyre!("unbound variable: {}", name)),
+            .get(&name)
+            .ok_or_else(|| eyre!("unbound variable: {}", name)),
         Expr::Func(arg, body) => Ok(Value::Closure {
             param: arg,
             body: *body,
@@ -169,11 +185,7 @@ pub fn eval(e: Expr, env: Rc<Env>) -> Result<Value> {
                     body,
                     env: closure_env,
                 } => {
-                    let thunk = Value::Thunk(Rc::new(RefCell::new(Thunk {
-                        expr: *rhs,
-                        env: env.clone(),
-                        state: ThunkState::Unevaluated,
-                    })));
+                    let thunk = mk_thunk(*rhs, env.clone());
 
                     let mut new_map = HashMap::new();
                     new_map.insert(param, thunk);
@@ -181,9 +193,9 @@ pub fn eval(e: Expr, env: Rc<Env>) -> Result<Value> {
                     eval(body, Rc::new(Env::new(Some(closure_env.clone()), new_map)))
                 }
                 Value::BuiltinFunction(builtin) => {
-                    let arg = force_whnf(eval(*rhs, env.clone())?)?;
+                    let arg = mk_thunk(*rhs, env.clone());
                     apply_builtin_function(builtin, arg)
-                },
+                }
                 _ => bail!("attempted to apply a non-function expression."),
             }
         }
@@ -210,8 +222,12 @@ pub fn eval(e: Expr, env: Rc<Env>) -> Result<Value> {
             }
 
             eval(*body, let_env)
-        },
-        Expr::If { cond, then_branch, else_branch } => {
+        }
+        Expr::If {
+            cond,
+            then_branch,
+            else_branch,
+        } => {
             let cond_val = force_whnf(eval(*cond, env.clone())?)?;
             match cond_val {
                 Value::Literal(Literal::Bool(true)) => eval(*then_branch, env),
@@ -254,13 +270,19 @@ mod tests {
     fn eval_application_identity_function_returns_argument() {
         let env = new_env();
         let expr = Expr::App(
-            Box::new(Expr::Func("x".to_string(), Box::new(Expr::Var("x".to_string())))),
+            Box::new(Expr::Func(
+                "x".to_string(),
+                Box::new(Expr::Var("x".to_string())),
+            )),
             Box::new(int_lit(42)),
         );
 
         let value = eval(expr, env).unwrap();
         let whnf = force_whnf(value).unwrap();
-        assert!(matches!(whnf, Value::Literal(Literal::Number(Number::Int(42)))));
+        assert!(matches!(
+            whnf,
+            Value::Literal(Literal::Number(Number::Int(42)))
+        ));
     }
 
     #[test]
@@ -270,7 +292,10 @@ mod tests {
 
         let value = eval(expr, env).unwrap();
         let whnf = force_whnf(value).unwrap();
-        assert!(matches!(whnf, Value::Literal(Literal::Number(Number::Int(7)))));
+        assert!(matches!(
+            whnf,
+            Value::Literal(Literal::Number(Number::Int(7)))
+        ));
     }
 
     #[test]
@@ -313,7 +338,10 @@ mod tests {
 
         let value = eval(expr, env).unwrap();
         let whnf = force_whnf(value).unwrap();
-        assert!(matches!(whnf, Value::Literal(Literal::Number(Number::Int(11)))));
+        assert!(matches!(
+            whnf,
+            Value::Literal(Literal::Number(Number::Int(11)))
+        ));
     }
 
     #[test]
@@ -327,7 +355,10 @@ mod tests {
 
         let value = eval(expr, env).unwrap();
         let whnf = force_whnf(value).unwrap();
-        assert!(matches!(whnf, Value::Literal(Literal::Number(Number::Int(22)))));
+        assert!(matches!(
+            whnf,
+            Value::Literal(Literal::Number(Number::Int(22)))
+        ));
     }
 
     #[test]
@@ -340,9 +371,10 @@ mod tests {
         };
 
         let err = eval(expr, env).unwrap_err();
-        assert!(err
-            .to_string()
-            .contains("condition of if expression must be a boolean literal"));
+        assert!(
+            err.to_string()
+                .contains("condition of if expression must be a boolean literal")
+        );
     }
 
     #[test]
@@ -356,7 +388,10 @@ mod tests {
 
         let value = eval(expr, env).unwrap();
         let whnf = force_whnf(value).unwrap();
-        assert!(matches!(whnf, Value::Literal(Literal::Number(Number::Int(7)))));
+        assert!(matches!(
+            whnf,
+            Value::Literal(Literal::Number(Number::Int(7)))
+        ));
     }
 
     #[test]
@@ -370,26 +405,66 @@ mod tests {
 
         let value = eval(expr, env).unwrap();
         let whnf = force_whnf(value).unwrap();
-        assert!(matches!(whnf, Value::Literal(Literal::Number(Number::Int(9)))));
+        assert!(matches!(
+            whnf,
+            Value::Literal(Literal::Number(Number::Int(9)))
+        ));
     }
 
     #[test]
     fn eval_parsed_if_expression_with_non_grouped_expression_branches() {
         let whnf = eval_src_to_whnf("if true then 1+2 else 3+4").unwrap();
-        assert!(matches!(whnf, Value::Literal(Literal::Number(Number::Int(3)))));
+        assert!(matches!(
+            whnf,
+            Value::Literal(Literal::Number(Number::Int(3)))
+        ));
     }
 
     #[test]
     fn eval_parsed_if_expression_with_expression_condition_returns_error() {
         let err = eval_src_to_whnf("if 1+2 then 3 else 4").unwrap_err();
-        assert!(err
-            .to_string()
-            .contains("condition of if expression must be a boolean literal"));
+        assert!(
+            err.to_string()
+                .contains("condition of if expression must be a boolean literal")
+        );
     }
 
     #[test]
     fn eval_parsed_nested_if_expression_in_then_branch() {
         let whnf = eval_src_to_whnf("if true then if false then 1 else 2 else 3").unwrap();
-        assert!(matches!(whnf, Value::Literal(Literal::Number(Number::Int(2)))));
+        assert!(matches!(
+            whnf,
+            Value::Literal(Literal::Number(Number::Int(2)))
+        ));
+    }
+
+    #[test]
+    fn eval_and_short_circuits_rhs() {
+        let whnf = eval_src_to_whnf("false && missing").unwrap();
+        assert!(matches!(whnf, Value::Literal(Literal::Bool(false))));
+    }
+
+    #[test]
+    fn eval_or_short_circuits_rhs() {
+        let whnf = eval_src_to_whnf("true || missing").unwrap();
+        assert!(matches!(whnf, Value::Literal(Literal::Bool(true))));
+    }
+
+    #[test]
+    fn eval_and_forces_rhs_when_lhs_is_true() {
+        let err = eval_src_to_whnf("true && missing").unwrap_err();
+        assert!(err.to_string().contains("unbound variable"));
+    }
+
+    #[test]
+    fn eval_or_forces_rhs_when_lhs_is_false() {
+        let err = eval_src_to_whnf("false || missing").unwrap_err();
+        assert!(err.to_string().contains("unbound variable"));
+    }
+
+    #[test]
+    fn eval_add_forces_rhs() {
+        let err = eval_src_to_whnf("1 + missing").unwrap_err();
+        assert!(err.to_string().contains("unbound variable"));
     }
 }
