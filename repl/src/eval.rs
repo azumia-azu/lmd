@@ -166,6 +166,36 @@ pub fn force_whnf(v: Value) -> Result<Value> {
     }
 }
 
+/// Evaluates an expression to a lazy `Value`.
+///
+/// # Examples
+///
+/// ```
+/// use eyre::Result;
+/// use lmd_core::ast::{Literal, Number};
+/// use lmd_core::parser::parse;
+/// use lmd_repl::eval::{Value, eval, force_whnf, new_env};
+///
+/// fn main() -> Result<()> {
+///     let src = r#"
+///         let fib = \n ->
+///             if n == 0 then 0
+///             else if n == 1 then 1
+///             else fib (n - 1) + fib (n - 2)
+///         in fib 10
+///     "#;
+///
+///     let expr = parse(src)?;
+///     let value = force_whnf(eval(expr, new_env())?)?;
+///
+///     assert!(matches!(
+///         value,
+///         Value::Literal(Literal::Number(Number::Int(55)))
+///     ));
+///
+///     Ok(())
+/// }
+/// ```
 pub fn eval(e: Expr, env: Rc<Env>) -> Result<Value> {
     match e {
         Expr::Literal(l) => Ok(Value::Literal(l)),
@@ -196,7 +226,7 @@ pub fn eval(e: Expr, env: Rc<Env>) -> Result<Value> {
                     let arg = mk_thunk(*rhs, env.clone());
                     apply_builtin_function(builtin, arg)
                 }
-                _ => bail!("attempted to apply a non-function expression."),
+                v => bail!("attempted to apply a non-function expression.  {:?}", v),
             }
         }
         Expr::Let(vars, body) => {
