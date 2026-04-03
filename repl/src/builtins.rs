@@ -4,8 +4,9 @@ use std::fmt::Display;
 use eyre::{Result, bail, eyre};
 use lmd_core::ast::{Literal, Number};
 
-use crate::eval::show_value;
 use crate::eval::Value;
+use crate::eval::force_whnf;
+use crate::eval::show_value;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 enum BuiltinKind {
@@ -158,23 +159,41 @@ pub fn apply_builtin_function(mut builtin: BuiltinFunction, arg: Value) -> Resul
 
 fn execute_builtin(kind: BuiltinKind, args: &[Value]) -> Result<Value> {
     match (kind, args) {
-        (BuiltinKind::Add, [lhs, rhs]) => eval_add(lhs, rhs),
-        (BuiltinKind::Sub, [lhs, rhs]) => eval_sub(lhs, rhs),
-        (BuiltinKind::Mul, [lhs, rhs]) => eval_mul(lhs, rhs),
-        (BuiltinKind::Div, [lhs, rhs]) => eval_div(lhs, rhs),
-        (BuiltinKind::Ge, [lhs, rhs]) => eval_num_cmp(lhs, rhs, ">="),
-        (BuiltinKind::Gt, [lhs, rhs]) => eval_num_cmp(lhs, rhs, ">"),
-        (BuiltinKind::Le, [lhs, rhs]) => eval_num_cmp(lhs, rhs, "<="),
-        (BuiltinKind::Lt, [lhs, rhs]) => eval_num_cmp(lhs, rhs, "<"),
-        (BuiltinKind::Eq, [lhs, rhs]) => Ok(bool_lit(eval_eq(lhs, rhs)?)),
-        (BuiltinKind::Ne, [lhs, rhs]) => Ok(bool_lit(!eval_eq(lhs, rhs)?)),
-        (BuiltinKind::Not, [v]) => Ok(bool_lit(!expect_bool(v, "!")?)),
-        (BuiltinKind::And, [lhs, rhs]) => {
-            Ok(bool_lit(expect_bool(lhs, "&&")? && expect_bool(rhs, "&&")?))
+        (BuiltinKind::Add, [lhs, rhs]) => {
+            eval_add(&force_whnf(lhs.clone())?, &force_whnf(rhs.clone())?)
         }
-        (BuiltinKind::Or, [lhs, rhs]) => {
-            Ok(bool_lit(expect_bool(lhs, "||")? || expect_bool(rhs, "||")?))
+        (BuiltinKind::Sub, [lhs, rhs]) => {
+            eval_sub(&force_whnf(lhs.clone())?, &force_whnf(rhs.clone())?)
         }
+        (BuiltinKind::Mul, [lhs, rhs]) => {
+            eval_mul(&force_whnf(lhs.clone())?, &force_whnf(rhs.clone())?)
+        }
+        (BuiltinKind::Div, [lhs, rhs]) => {
+            eval_div(&force_whnf(lhs.clone())?, &force_whnf(rhs.clone())?)
+        }
+        (BuiltinKind::Ge, [lhs, rhs]) => {
+            eval_num_cmp(&force_whnf(lhs.clone())?, &force_whnf(rhs.clone())?, ">=")
+        }
+        (BuiltinKind::Gt, [lhs, rhs]) => {
+            eval_num_cmp(&force_whnf(lhs.clone())?, &force_whnf(rhs.clone())?, ">")
+        }
+        (BuiltinKind::Le, [lhs, rhs]) => {
+            eval_num_cmp(&force_whnf(lhs.clone())?, &force_whnf(rhs.clone())?, "<=")
+        }
+        (BuiltinKind::Lt, [lhs, rhs]) => {
+            eval_num_cmp(&force_whnf(lhs.clone())?, &force_whnf(rhs.clone())?, "<")
+        }
+        (BuiltinKind::Eq, [lhs, rhs]) => Ok(bool_lit(eval_eq(
+            &force_whnf(lhs.clone())?,
+            &force_whnf(rhs.clone())?,
+        )?)),
+        (BuiltinKind::Ne, [lhs, rhs]) => Ok(bool_lit(!eval_eq(
+            &force_whnf(lhs.clone())?,
+            &force_whnf(rhs.clone())?,
+        )?)),
+        (BuiltinKind::Not, [v]) => Ok(bool_lit(!expect_bool(&force_whnf(v.clone())?, "!")?)),
+        (BuiltinKind::And, [lhs, rhs]) => eval_and(lhs, rhs),
+        (BuiltinKind::Or, [lhs, rhs]) => eval_or(lhs, rhs),
         _ => bail!("builtin arity/type mismatch"),
     }
 }
@@ -260,9 +279,10 @@ fn eval_add(lhs: &Value, rhs: &Value) -> Result<Value> {
                 as_f64_number(lhs, "+")? + as_f64_number(rhs, "+")?,
             ))))
         }
-        (Value::Literal(Literal::Number(Number::Int(i1))), Value::Literal(Literal::Number(Number::Int(i2)))) => {
-            Ok(Value::Literal(Literal::Number(Number::Int(i1 + i2))))
-        }
+        (
+            Value::Literal(Literal::Number(Number::Int(i1))),
+            Value::Literal(Literal::Number(Number::Int(i2))),
+        ) => Ok(Value::Literal(Literal::Number(Number::Int(i1 + i2)))),
         _ => bail!(
             "type error: incompatible types for operator +: {}, {}",
             show_value(lhs),
@@ -279,9 +299,10 @@ fn eval_sub(lhs: &Value, rhs: &Value) -> Result<Value> {
                 as_f64_number(lhs, "-")? - as_f64_number(rhs, "-")?,
             ))))
         }
-        (Value::Literal(Literal::Number(Number::Int(i1))), Value::Literal(Literal::Number(Number::Int(i2)))) => {
-            Ok(Value::Literal(Literal::Number(Number::Int(i1 - i2))))
-        }
+        (
+            Value::Literal(Literal::Number(Number::Int(i1))),
+            Value::Literal(Literal::Number(Number::Int(i2))),
+        ) => Ok(Value::Literal(Literal::Number(Number::Int(i1 - i2)))),
         _ => bail!(
             "type error: incompatible types for operator -: {}, {}",
             show_value(lhs),
@@ -298,9 +319,10 @@ fn eval_mul(lhs: &Value, rhs: &Value) -> Result<Value> {
                 as_f64_number(lhs, "*")? * as_f64_number(rhs, "*")?,
             ))))
         }
-        (Value::Literal(Literal::Number(Number::Int(i1))), Value::Literal(Literal::Number(Number::Int(i2)))) => {
-            Ok(Value::Literal(Literal::Number(Number::Int(i1 * i2))))
-        }
+        (
+            Value::Literal(Literal::Number(Number::Int(i1))),
+            Value::Literal(Literal::Number(Number::Int(i2))),
+        ) => Ok(Value::Literal(Literal::Number(Number::Int(i1 * i2)))),
         _ => bail!(
             "type error: incompatible types for operator *: {}, {}",
             show_value(lhs),
@@ -317,18 +339,35 @@ fn eval_div(lhs: &Value, rhs: &Value) -> Result<Value> {
                 as_f64_number(lhs, "/")? / as_f64_number(rhs, "/")?,
             ))))
         }
-        (Value::Literal(Literal::Number(Number::Int(i1))), Value::Literal(Literal::Number(Number::Int(i2)))) => {
-            Ok(Value::Literal(Literal::Number(Number::Int(
-                i1.checked_div(*i2)
-                    .ok_or_else(|| eyre!("integer division overflow or division by zero"))?,
-            ))))
-        }
+        (
+            Value::Literal(Literal::Number(Number::Int(i1))),
+            Value::Literal(Literal::Number(Number::Int(i2))),
+        ) => Ok(Value::Literal(Literal::Number(Number::Int(
+            i1.checked_div(*i2)
+                .ok_or_else(|| eyre!("integer division overflow or division by zero"))?,
+        )))),
         _ => bail!(
             "type error: incompatible types for operator /: {}, {}",
             show_value(lhs),
             show_value(rhs)
         ),
     }
+}
+
+fn eval_and(lhs: &Value, rhs: &Value) -> Result<Value> {
+    if !expect_bool(&force_whnf(lhs.clone())?, "&&")? {
+        return Ok(bool_lit(false));
+    }
+
+    Ok(bool_lit(expect_bool(&force_whnf(rhs.clone())?, "&&")?))
+}
+
+fn eval_or(lhs: &Value, rhs: &Value) -> Result<Value> {
+    if expect_bool(&force_whnf(lhs.clone())?, "||")? {
+        return Ok(bool_lit(true));
+    }
+
+    Ok(bool_lit(expect_bool(&force_whnf(rhs.clone())?, "||")?))
 }
 
 #[cfg(test)]
@@ -405,13 +444,18 @@ mod tests {
     #[test]
     fn div_int_overflow_returns_error() {
         let err = apply_symbol("/", vec![int(isize::MIN), int(-1)]).unwrap_err();
-        assert!(err.to_string().contains("overflow") || err.to_string().contains("division by zero"));
+        assert!(
+            err.to_string().contains("overflow") || err.to_string().contains("division by zero")
+        );
     }
 
     #[test]
     fn add_ints_returns_int_literal() {
         let result = apply_symbol("+", vec![int(2), int(3)]).unwrap();
-        assert!(matches!(result, Value::Literal(Literal::Number(Number::Int(5)))));
+        assert!(matches!(
+            result,
+            Value::Literal(Literal::Number(Number::Int(5)))
+        ));
     }
 
     #[test]
