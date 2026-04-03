@@ -126,6 +126,14 @@ impl Thunk {
     }
 }
 
+pub fn mk_thunk(expr: Expr, env: Rc<Env>) -> Value {
+    Value::Thunk(Rc::new(RefCell::new(Thunk {
+        expr,
+        env,
+        state: ThunkState::Unevaluated,
+    })))
+}
+
 pub fn force_whnf(v: Value) -> Result<Value> {
     let mut cur = v;
     loop {
@@ -177,11 +185,7 @@ pub fn eval(e: Expr, env: Rc<Env>) -> Result<Value> {
                     body,
                     env: closure_env,
                 } => {
-                    let thunk = Value::Thunk(Rc::new(RefCell::new(Thunk {
-                        expr: *rhs,
-                        env: env.clone(),
-                        state: ThunkState::Unevaluated,
-                    })));
+                    let thunk = mk_thunk(*rhs, env.clone());
 
                     let mut new_map = HashMap::new();
                     new_map.insert(param, thunk);
@@ -189,11 +193,7 @@ pub fn eval(e: Expr, env: Rc<Env>) -> Result<Value> {
                     eval(body, Rc::new(Env::new(Some(closure_env.clone()), new_map)))
                 }
                 Value::BuiltinFunction(builtin) => {
-                    let arg = Value::Thunk(Rc::new(RefCell::new(Thunk {
-                        expr: *rhs,
-                        env: env.clone(),
-                        state: ThunkState::Unevaluated,
-                    })));
+                    let arg = mk_thunk(*rhs, env.clone());
                     apply_builtin_function(builtin, arg)
                 }
                 _ => bail!("attempted to apply a non-function expression."),
@@ -459,6 +459,12 @@ mod tests {
     #[test]
     fn eval_or_forces_rhs_when_lhs_is_false() {
         let err = eval_src_to_whnf("false || missing").unwrap_err();
+        assert!(err.to_string().contains("unbound variable"));
+    }
+
+    #[test]
+    fn eval_add_forces_rhs() {
+        let err = eval_src_to_whnf("1 + missing").unwrap_err();
         assert!(err.to_string().contains("unbound variable"));
     }
 }

@@ -159,43 +159,29 @@ pub fn apply_builtin_function(mut builtin: BuiltinFunction, arg: Value) -> Resul
 
 fn execute_builtin(kind: BuiltinKind, args: &[Value]) -> Result<Value> {
     match (kind, args) {
-        (BuiltinKind::Add, [lhs, rhs]) => {
-            eval_add(&force_whnf(lhs.clone())?, &force_whnf(rhs.clone())?)
-        }
-        (BuiltinKind::Sub, [lhs, rhs]) => {
-            eval_sub(&force_whnf(lhs.clone())?, &force_whnf(rhs.clone())?)
-        }
-        (BuiltinKind::Mul, [lhs, rhs]) => {
-            eval_mul(&force_whnf(lhs.clone())?, &force_whnf(rhs.clone())?)
-        }
-        (BuiltinKind::Div, [lhs, rhs]) => {
-            eval_div(&force_whnf(lhs.clone())?, &force_whnf(rhs.clone())?)
-        }
-        (BuiltinKind::Ge, [lhs, rhs]) => {
-            eval_num_cmp(&force_whnf(lhs.clone())?, &force_whnf(rhs.clone())?, ">=")
-        }
-        (BuiltinKind::Gt, [lhs, rhs]) => {
-            eval_num_cmp(&force_whnf(lhs.clone())?, &force_whnf(rhs.clone())?, ">")
-        }
-        (BuiltinKind::Le, [lhs, rhs]) => {
-            eval_num_cmp(&force_whnf(lhs.clone())?, &force_whnf(rhs.clone())?, "<=")
-        }
-        (BuiltinKind::Lt, [lhs, rhs]) => {
-            eval_num_cmp(&force_whnf(lhs.clone())?, &force_whnf(rhs.clone())?, "<")
-        }
-        (BuiltinKind::Eq, [lhs, rhs]) => Ok(bool_lit(eval_eq(
-            &force_whnf(lhs.clone())?,
-            &force_whnf(rhs.clone())?,
-        )?)),
-        (BuiltinKind::Ne, [lhs, rhs]) => Ok(bool_lit(!eval_eq(
-            &force_whnf(lhs.clone())?,
-            &force_whnf(rhs.clone())?,
-        )?)),
-        (BuiltinKind::Not, [v]) => Ok(bool_lit(!expect_bool(&force_whnf(v.clone())?, "!")?)),
+        (BuiltinKind::Add, [lhs, rhs]) => eval_add2(args2_whnf(lhs, rhs)?),
+        (BuiltinKind::Sub, [lhs, rhs]) => eval_sub2(args2_whnf(lhs, rhs)?),
+        (BuiltinKind::Mul, [lhs, rhs]) => eval_mul2(args2_whnf(lhs, rhs)?),
+        (BuiltinKind::Div, [lhs, rhs]) => eval_div2(args2_whnf(lhs, rhs)?),
+        (BuiltinKind::Ge, [lhs, rhs]) => eval_num_cmp2(args2_whnf(lhs, rhs)?, ">="),
+        (BuiltinKind::Gt, [lhs, rhs]) => eval_num_cmp2(args2_whnf(lhs, rhs)?, ">"),
+        (BuiltinKind::Le, [lhs, rhs]) => eval_num_cmp2(args2_whnf(lhs, rhs)?, "<="),
+        (BuiltinKind::Lt, [lhs, rhs]) => eval_num_cmp2(args2_whnf(lhs, rhs)?, "<"),
+        (BuiltinKind::Eq, [lhs, rhs]) => Ok(bool_lit(eval_eq2(args2_whnf(lhs, rhs)?)?)),
+        (BuiltinKind::Ne, [lhs, rhs]) => Ok(bool_lit(!eval_eq2(args2_whnf(lhs, rhs)?)?)),
+        (BuiltinKind::Not, [v]) => Ok(bool_lit(!expect_bool(&force_arg(v)?, "!")?)),
         (BuiltinKind::And, [lhs, rhs]) => eval_and(lhs, rhs),
         (BuiltinKind::Or, [lhs, rhs]) => eval_or(lhs, rhs),
         _ => bail!("builtin arity/type mismatch"),
     }
+}
+
+fn force_arg(v: &Value) -> Result<Value> {
+    force_whnf(v.clone())
+}
+
+fn args2_whnf(lhs: &Value, rhs: &Value) -> Result<(Value, Value)> {
+    Ok((force_arg(lhs)?, force_arg(rhs)?))
 }
 
 fn bool_lit(v: bool) -> Value {
@@ -240,6 +226,10 @@ fn eval_num_cmp(lhs: &Value, rhs: &Value, op: &str) -> Result<Value> {
     Ok(bool_lit(out))
 }
 
+fn eval_num_cmp2((lhs, rhs): (Value, Value), op: &str) -> Result<Value> {
+    eval_num_cmp(&lhs, &rhs, op)
+}
+
 fn eval_eq(lhs: &Value, rhs: &Value) -> Result<bool> {
     match (lhs, rhs) {
         (Value::Literal(Literal::Bool(a)), Value::Literal(Literal::Bool(b))) => Ok(a == b),
@@ -253,6 +243,10 @@ fn eval_eq(lhs: &Value, rhs: &Value) -> Result<bool> {
             show_value(rhs)
         ),
     }
+}
+
+fn eval_eq2((lhs, rhs): (Value, Value)) -> Result<bool> {
+    eval_eq(&lhs, &rhs)
 }
 
 fn eval_add(lhs: &Value, rhs: &Value) -> Result<Value> {
@@ -291,6 +285,10 @@ fn eval_add(lhs: &Value, rhs: &Value) -> Result<Value> {
     }
 }
 
+fn eval_add2((lhs, rhs): (Value, Value)) -> Result<Value> {
+    eval_add(&lhs, &rhs)
+}
+
 fn eval_sub(lhs: &Value, rhs: &Value) -> Result<Value> {
     match (lhs, rhs) {
         (Value::Literal(Literal::Number(Number::Float(_))), _)
@@ -311,6 +309,10 @@ fn eval_sub(lhs: &Value, rhs: &Value) -> Result<Value> {
     }
 }
 
+fn eval_sub2((lhs, rhs): (Value, Value)) -> Result<Value> {
+    eval_sub(&lhs, &rhs)
+}
+
 fn eval_mul(lhs: &Value, rhs: &Value) -> Result<Value> {
     match (lhs, rhs) {
         (Value::Literal(Literal::Number(Number::Float(_))), _)
@@ -329,6 +331,10 @@ fn eval_mul(lhs: &Value, rhs: &Value) -> Result<Value> {
             show_value(rhs)
         ),
     }
+}
+
+fn eval_mul2((lhs, rhs): (Value, Value)) -> Result<Value> {
+    eval_mul(&lhs, &rhs)
 }
 
 fn eval_div(lhs: &Value, rhs: &Value) -> Result<Value> {
@@ -352,6 +358,10 @@ fn eval_div(lhs: &Value, rhs: &Value) -> Result<Value> {
             show_value(rhs)
         ),
     }
+}
+
+fn eval_div2((lhs, rhs): (Value, Value)) -> Result<Value> {
+    eval_div(&lhs, &rhs)
 }
 
 fn eval_and(lhs: &Value, rhs: &Value) -> Result<Value> {
