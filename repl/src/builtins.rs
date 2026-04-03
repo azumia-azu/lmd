@@ -211,16 +211,47 @@ fn as_f64_number(v: &Value, op: &str) -> Result<f64> {
     }
 }
 
-fn eval_num_cmp(lhs: &Value, rhs: &Value, op: &str) -> Result<Value> {
-    let l = as_f64_number(lhs, op)?;
-    let r = as_f64_number(rhs, op)?;
+fn as_number<'a>(v: &'a Value, op: &str) -> Result<&'a Number> {
+    match v {
+        Value::Literal(Literal::Number(n)) => Ok(n),
+        _ => bail!(
+            "type error: operator {} expects numeric operands, got {}",
+            op,
+            show_value(v)
+        ),
+    }
+}
 
-    let out = match op {
-        ">" => l > r,
-        ">=" => l >= r,
-        "<" => l < r,
-        "<=" => l <= r,
-        _ => unreachable!("unsupported compare op"),
+fn eval_num_cmp(lhs: &Value, rhs: &Value, op: &str) -> Result<Value> {
+    let out = match (as_number(lhs, op)?, as_number(rhs, op)?) {
+        (Number::Int(l), Number::Int(r)) => match op {
+            ">" => l > r,
+            ">=" => l >= r,
+            "<" => l < r,
+            "<=" => l <= r,
+            _ => unreachable!("unsupported compare op"),
+        },
+        (Number::Int(l), Number::Float(r)) => match op {
+            ">" => (*l as f64) > *r,
+            ">=" => (*l as f64) >= *r,
+            "<" => (*l as f64) < *r,
+            "<=" => (*l as f64) <= *r,
+            _ => unreachable!("unsupported compare op"),
+        },
+        (Number::Float(l), Number::Int(r)) => match op {
+            ">" => *l > (*r as f64),
+            ">=" => *l >= (*r as f64),
+            "<" => *l < (*r as f64),
+            "<=" => *l <= (*r as f64),
+            _ => unreachable!("unsupported compare op"),
+        },
+        (Number::Float(l), Number::Float(r)) => match op {
+            ">" => l > r,
+            ">=" => l >= r,
+            "<" => l < r,
+            "<=" => l <= r,
+            _ => unreachable!("unsupported compare op"),
+        },
     };
 
     Ok(bool_lit(out))
@@ -234,9 +265,22 @@ fn eval_eq(lhs: &Value, rhs: &Value) -> Result<bool> {
     match (lhs, rhs) {
         (Value::Literal(Literal::Bool(a)), Value::Literal(Literal::Bool(b))) => Ok(a == b),
         (Value::Literal(Literal::Str(a)), Value::Literal(Literal::Str(b))) => Ok(a == b),
-        (Value::Literal(Literal::Number(_)), Value::Literal(Literal::Number(_))) => {
-            Ok(as_f64_number(lhs, "==")? == as_f64_number(rhs, "==")?)
-        }
+        (
+            Value::Literal(Literal::Number(Number::Int(a))),
+            Value::Literal(Literal::Number(Number::Int(b))),
+        ) => Ok(a == b),
+        (
+            Value::Literal(Literal::Number(Number::Int(a))),
+            Value::Literal(Literal::Number(Number::Float(b))),
+        ) => Ok((*a as f64) == *b),
+        (
+            Value::Literal(Literal::Number(Number::Float(a))),
+            Value::Literal(Literal::Number(Number::Int(b))),
+        ) => Ok(*a == (*b as f64)),
+        (
+            Value::Literal(Literal::Number(Number::Float(a))),
+            Value::Literal(Literal::Number(Number::Float(b))),
+        ) => Ok(a == b),
         _ => bail!(
             "type error: incompatible types for operator ==: {}, {}",
             show_value(lhs),
@@ -483,6 +527,22 @@ mod tests {
     #[test]
     fn compare_numbers_returns_bool_literal() {
         let result = apply_symbol(">=", vec![int(2), int(2)]).unwrap();
+        assert!(matches!(result, Value::Literal(Literal::Bool(true))));
+    }
+
+    #[test]
+    fn eq_large_ints_preserves_integer_precision() {
+        let lhs = int((1isize << 54) + 1);
+        let rhs = int((1isize << 54) + 2);
+        let result = apply_symbol("==", vec![lhs, rhs]).unwrap();
+        assert!(matches!(result, Value::Literal(Literal::Bool(false))));
+    }
+
+    #[test]
+    fn cmp_large_ints_preserves_integer_precision() {
+        let lhs = int((1isize << 54) + 2);
+        let rhs = int((1isize << 54) + 1);
+        let result = apply_symbol(">", vec![lhs, rhs]).unwrap();
         assert!(matches!(result, Value::Literal(Literal::Bool(true))));
     }
 
