@@ -226,7 +226,7 @@ pub fn eval(e: Expr, env: Rc<Env>) -> Result<Value> {
                     let arg = mk_thunk(*rhs, env.clone());
                     apply_builtin_function(builtin, arg)
                 }
-                _ => bail!("attempted to apply a non-function expression."),
+                v => bail!("attempted to apply a non-function expression.  {:?}", v),
             }
         }
         Expr::Let(vars, body) => {

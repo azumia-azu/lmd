@@ -9,3 +9,4 @@ license.workspace = true
 lmd-core = { workspace = true }
 itertools = "0.14.0"
 eyre = "0.6"
+reedline = "0.46.0"
