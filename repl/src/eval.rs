@@ -554,4 +554,35 @@ mod tests {
         let err = eval_src_to_whnf(&src).unwrap_err();
         assert!(err.to_string().contains("integer overflow"));
     }
+
+    #[test]
+    fn eval_negating_i64_min_returns_overflow_error() {
+        let src = format!("-({})", i64::MIN);
+        let err = eval_src_to_whnf(&src).unwrap_err();
+        assert!(err.to_string().contains("integer overflow"));
+    }
+
+    #[test]
+    fn eval_subtraction_underflow_returns_error() {
+        let src = format!("{} - 1", i64::MIN);
+        let err = eval_src_to_whnf(&src).unwrap_err();
+        assert!(err.to_string().contains("integer overflow"));
+    }
+
+    #[test]
+    fn eval_multiplication_overflow_returns_error() {
+        let src = format!("{} * 2", i64::MAX);
+        let err = eval_src_to_whnf(&src).unwrap_err();
+        assert!(err.to_string().contains("integer overflow"));
+    }
+
+    #[test]
+    fn eval_dividing_i64_min_by_negative_one_returns_error() {
+        let src = format!("{} / -1", i64::MIN);
+        let err = eval_src_to_whnf(&src).unwrap_err();
+        assert!(
+            err.to_string().contains("integer division overflow")
+                || err.to_string().contains("integer overflow")
+        );
+    }
 }

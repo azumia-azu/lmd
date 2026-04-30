@@ -107,7 +107,7 @@ fn normalize_bounded_ints(expr: Expr) -> Result<Expr, &'static str> {
                 {
                     Ok(Expr::Literal(Literal::Number(Number::Int(i64::MIN as i128))))
                 }
-                (lhs, _) if matches_prefix_negation(&lhs) => {
+                (lhs, _) if matches_non_callable_negative(&lhs) => {
                     Err("cannot apply a parenthesized negative expression")
                 }
                 (lhs, rhs) => Ok(Expr::App(
@@ -135,8 +135,9 @@ fn normalize_bounded_ints(expr: Expr) -> Result<Expr, &'static str> {
     }
 }
 
-fn matches_prefix_negation(expr: &Expr) -> bool {
+fn matches_non_callable_negative(expr: &Expr) -> bool {
     matches!(expr, Expr::App(op, _) if matches!(op.as_ref(), Expr::Op(Op::Neg)))
+        || matches!(expr, Expr::Literal(Literal::Number(Number::Int(v))) if *v < 0)
 }
 
 impl ParseError {
@@ -376,6 +377,24 @@ mod tests {
     }
 
     #[test]
+    fn parse_accepts_i64_max_literal() {
+        let expr = parse(&i64::MAX.to_string()).unwrap();
+        assert_int(&expr, i128::from(i64::MAX));
+    }
+
+    #[test]
+    fn parse_rejects_literal_smaller_than_i64_min() {
+        let input = format!("-{}", i128::from(i64::MAX) + 2);
+        let err = parse(&input).unwrap_err();
+        assert_eq!(err.kind, ParseErrorKind::User);
+        assert!(
+            err.message
+                .as_deref()
+                .is_some_and(|message| message.contains("integer literal overflow"))
+        );
+    }
+
+    #[test]
     fn parse_negated_variable_desugars_to_neg_application() {
         let expr = parse("-x").unwrap();
         let inner = assert_prefix_op(&expr, Op::Neg);
@@ -411,6 +430,39 @@ mod tests {
     #[test]
     fn parse_rejects_applying_parenthesized_negative_literal() {
         let err = parse("((-1) 2)").unwrap_err();
+        assert_eq!(err.kind, ParseErrorKind::User);
+        assert!(
+            err.message
+                .as_deref()
+                .is_some_and(|message| message.contains("cannot apply a parenthesized negative"))
+        );
+    }
+
+    #[test]
+    fn parse_rejects_applying_parenthesized_min_int_literal() {
+        let err = parse("(-9223372036854775808) 2").unwrap_err();
+        assert_eq!(err.kind, ParseErrorKind::User);
+        assert!(
+            err.message
+                .as_deref()
+                .is_some_and(|message| message.contains("cannot apply a parenthesized negative"))
+        );
+    }
+
+    #[test]
+    fn parse_rejects_applying_parenthesized_negative_float_literal() {
+        let err = parse("(-1.0) 2").unwrap_err();
+        assert_eq!(err.kind, ParseErrorKind::User);
+        assert!(
+            err.message
+                .as_deref()
+                .is_some_and(|message| message.contains("cannot apply a parenthesized negative"))
+        );
+    }
+
+    #[test]
+    fn parse_rejects_applying_parenthesized_negative_expression() {
+        let err = parse("((-(1 + 2)) 3)").unwrap_err();
         assert_eq!(err.kind, ParseErrorKind::User);
         assert!(
             err.message
