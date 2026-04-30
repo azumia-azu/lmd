@@ -64,9 +64,7 @@ AndExpr: ast::Expr = {
 };
 
 PrefixExpr: ast::Expr = {
-    <op: PrefixOp> <expr: PrefixExpr> => {
-        ast::Expr::App(Box::new(ast::Expr::Var(op)), Box::new(expr))
-    },
+    <op: PrefixOp> <expr: PrefixExpr> => ast::mk_prefix(op, expr),
     <e: AppExpr> => e,
 };
 
@@ -105,8 +103,8 @@ MulExpr: ast::Expr = {
 Atom: ast::Expr = {
     <l:Literal> => ast::Expr::Literal(l),
     <i: Ident> => ast::Expr::Var(i),
-    "(" <op: PrefixCallableOp> <arg: Expr> ")" => ast::Expr::App(Box::new(ast::Expr::Var(op)), Box::new(arg)),
-    "(" <op: Operator> ")" => ast::Expr::Var(op),
+    "(" <op: PrefixCallableOp> <arg: Expr> ")" => ast::mk_prefix(op, arg),
+    "(" <op: Operator> ")" => ast::Expr::Op(op),
     "(" <e: Expr> ")" => e,
     "{" <e: Expr> "}" => e,
 
@@ -123,8 +121,16 @@ AppExpr: ast::Expr = {
 Ident: String = <s:IDENT> => s.to_string();
 
 Num: ast::Number = {
-    <i: r"[0-9]+"> => ast::Number::Int(i.parse().unwrap()),
-    <f: r"[0-9]+\.[0-9]+"> => ast::Number::Float(f.parse().unwrap()),
+    <i: r"[0-9]+"> =>? {
+        Ok(i.parse::<i128>()
+            .map(ast::Number::Int)
+            .map_err(|_| "integer literal overflow")?)
+    },
+    <f: r"[0-9]+\.[0-9]+"> =>? {
+        Ok(f.parse::<f64>()
+            .map(ast::Number::Float)
+            .map_err(|_| "invalid float literal")?)
+    },
 };
 
 String: String = <s:r#""([^"\\]|\\.)*""#> => {
@@ -139,12 +145,12 @@ Literal: ast::Literal = {
     "false" => ast::Literal::Bool(false),
 };
 
-Operator: String = {
+Operator: ast::Op = {
     <op: BinaryOp> => op,
-    "!" => "!".to_string(),
+    "!" => ast::Op::Not,
 };
 
-BinaryOp: String = {
+BinaryOp: ast::Op = {
     <op:MulOp> => op,
     <op:AddOp> => op,
     <op:CompareOp> => op,
@@ -153,46 +159,46 @@ BinaryOp: String = {
     <op: OrOp> => op,
 };
 
-PrefixCallableOp: String = {
+PrefixCallableOp: ast::Op = {
     <op:MulOp> => op,
-    "+" => "+".to_string(),
+    "+" => ast::Op::Add,
     <op:CompareOp> => op,
     <op:EqualOp> => op,
     <op: AndOp> => op,
     <op: OrOp> => op,
 };
 
-OrOp: String = {
-    "||" => "||".to_string(),
+OrOp: ast::Op = {
+    "||" => ast::Op::Or,
 };
 
-AndOp: String = {
-    "&&" => "&&".to_string(),
+AndOp: ast::Op = {
+    "&&" => ast::Op::And,
 };
 
-PrefixOp: String = {
-    "!" => "!".to_string(),
-    "-" => "neg".to_string(),
+PrefixOp: ast::Op = {
+    "!" => ast::Op::Not,
+    "-" => ast::Op::Neg,
 };
 
-EqualOp: String = {
-    "==" => "==".to_string(),
-    "!=" => "!=".to_string(),
+EqualOp: ast::Op = {
+    "==" => ast::Op::Eq,
+    "!=" => ast::Op::Ne,
 };
 
-CompareOp: String = {
-    "<" => "<".to_string(),
-    ">" => ">".to_string(),
-    "<=" => "<=".to_string(),
-    ">=" => ">=".to_string(),
+CompareOp: ast::Op = {
+    "<" => ast::Op::Lt,
+    ">" => ast::Op::Gt,
+    "<=" => ast::Op::Le,
+    ">=" => ast::Op::Ge,
 };
 
-AddOp: String = {
-    "+" => "+".to_string(),
-    "-" => "-".to_string(),
+AddOp: ast::Op = {
+    "+" => ast::Op::Add,
+    "-" => ast::Op::Sub,
 };
 
-MulOp: String = {
-    "*" => "*".to_string(),
-    "/" => "/".to_string(),
+MulOp: ast::Op = {
+    "*" => ast::Op::Mul,
+    "/" => ast::Op::Div,
 }

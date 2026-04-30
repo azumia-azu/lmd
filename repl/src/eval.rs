@@ -4,7 +4,9 @@ use std::{cell::RefCell, collections::HashMap, rc::Rc};
 
 use lmd_core::ast::{Expr, Literal, Number};
 
-use crate::builtins::{BuiltinFunction, apply_builtin_function, builtin_functions};
+use crate::builtins::{
+    BuiltinFunction, apply_builtin_function, builtin_functions, builtin_value_from_op,
+};
 
 pub fn new_env() -> Rc<Env> {
     Rc::new(Env::new(None, builtin_functions()))
@@ -19,6 +21,7 @@ fn show_prec(expr: &Expr, prec: usize) -> String {
     match expr {
         Expr::Literal(l) => l.to_string(),
         Expr::Var(v) => v.clone(),
+        Expr::Op(op) => op.to_string(),
         Expr::Func(arg, body) => {
             let s = format!("\\{} -> {}", arg, show_prec(body, 0));
             if prec > 0 { format!("({})", s) } else { s }
@@ -202,6 +205,7 @@ pub fn eval(e: Expr, env: Rc<Env>) -> Result<Value> {
         Expr::Var(name) => env
             .get(&name)
             .ok_or_else(|| eyre!("unbound variable: {}", name)),
+        Expr::Op(op) => Ok(builtin_value_from_op(op)),
         Expr::Func(arg, body) => Ok(Value::Closure {
             param: arg,
             body: *body,
@@ -272,7 +276,7 @@ mod tests {
     use super::*;
     use lmd_core::parser::parse;
 
-    fn int_lit(v: isize) -> Expr {
+    fn int_lit(v: i128) -> Expr {
         Expr::Literal(Literal::Number(Number::Int(v)))
     }
 
@@ -522,6 +526,25 @@ mod tests {
         assert!(matches!(
             whnf,
             Value::Literal(Literal::Number(Number::Int(3)))
+        ));
+    }
+
+    #[test]
+    fn eval_prefix_negation_is_not_shadowed_by_user_binding() {
+        let whnf = eval_src_to_whnf(r#"let neg = \x -> x; in -1"#).unwrap();
+        assert!(matches!(
+            whnf,
+            Value::Literal(Literal::Number(Number::Int(-1)))
+        ));
+    }
+
+    #[test]
+    fn eval_min_signed_integer_literal() {
+        let src = format!("-{}", i128::from(i64::MAX) + 1);
+        let whnf = eval_src_to_whnf(&src).unwrap();
+        assert!(matches!(
+            whnf,
+            Value::Literal(Literal::Number(Number::Int(v))) if v == i128::from(i64::MIN)
         ));
     }
 }

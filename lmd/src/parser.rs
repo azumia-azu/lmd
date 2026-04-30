@@ -121,7 +121,7 @@ impl ParseError {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ast::{Expr, Literal, Number};
+    use crate::ast::{Expr, Literal, Number, Op};
 
     fn assert_var(expr: &Expr, expected: &str) {
         match expr {
@@ -130,17 +130,24 @@ mod tests {
         }
     }
 
-    fn assert_int(expr: &Expr, expected: isize) {
+    fn assert_op(expr: &Expr, expected: Op) {
+        match expr {
+            Expr::Op(op) => assert_eq!(*op, expected),
+            other => panic!("expected operator '{expected:?}', got {other:?}"),
+        }
+    }
+
+    fn assert_int(expr: &Expr, expected: i128) {
         match expr {
             Expr::Literal(Literal::Number(Number::Int(v))) => assert_eq!(*v, expected),
             other => panic!("expected int literal {expected}, got {other:?}"),
         }
     }
 
-    fn assert_prefix_op<'a>(expr: &'a Expr, expected_op: &str) -> &'a Expr {
+    fn assert_prefix_op<'a>(expr: &'a Expr, expected_op: Op) -> &'a Expr {
         match expr {
             Expr::App(op, inner) => {
-                assert_var(op, expected_op);
+                assert_op(op, expected_op);
                 inner.as_ref()
             }
             other => panic!("expected prefix operator application {expected_op}, got {other:?}"),
@@ -285,21 +292,21 @@ mod tests {
     #[test]
     fn parse_negative_integer_desugars_to_neg_application() {
         let expr = parse("-42").unwrap();
-        let inner = assert_prefix_op(&expr, "neg");
+        let inner = assert_prefix_op(&expr, Op::Neg);
         assert_int(inner, 42);
     }
 
     #[test]
     fn parse_negated_variable_desugars_to_neg_application() {
         let expr = parse("-x").unwrap();
-        let inner = assert_prefix_op(&expr, "neg");
+        let inner = assert_prefix_op(&expr, Op::Neg);
         assert_var(inner, "x");
     }
 
     #[test]
     fn parse_negated_grouped_expression_desugars_to_neg_application() {
         let expr = parse("-(1+2)").unwrap();
-        let inner = assert_prefix_op(&expr, "neg");
+        let inner = assert_prefix_op(&expr, Op::Neg);
         assert!(matches!(inner, Expr::App(_, _)));
     }
 
@@ -308,11 +315,11 @@ mod tests {
         let expr = parse("1 - -2").unwrap();
         match &expr {
             Expr::App(f, rhs) => {
-                let neg_rhs = assert_prefix_op(rhs, "neg");
+                let neg_rhs = assert_prefix_op(rhs, Op::Neg);
                 assert_int(neg_rhs, 2);
                 match f.as_ref() {
                     Expr::App(op, lhs) => {
-                        assert_var(op, "-");
+                        assert_op(op, Op::Sub);
                         assert_int(lhs, 1);
                     }
                     other => panic!("expected subtraction head, got {other:?}"),
@@ -330,7 +337,7 @@ mod tests {
                 assert_int(rhs, 2);
                 match f1.as_ref() {
                     Expr::App(op, lhs) => {
-                        assert_var(op, "+");
+                        assert_op(op, Op::Add);
                         assert_int(lhs, 1);
                     }
                     other => panic!("expected operator application head, got {other:?}"),
@@ -347,7 +354,7 @@ mod tests {
             Expr::App(f1, rhs_add) => {
                 match f1.as_ref() {
                     Expr::App(op_add, lhs_add) => {
-                        assert_var(op_add, "+");
+                        assert_op(op_add, Op::Add);
                         assert_int(lhs_add, 1);
                     }
                     other => panic!("expected addition head, got {other:?}"),
@@ -358,7 +365,7 @@ mod tests {
                         assert_int(rhs_mul, 3);
                         match f2.as_ref() {
                             Expr::App(op_mul, lhs_mul) => {
-                                assert_var(op_mul, "*");
+                                assert_op(op_mul, Op::Mul);
                                 assert_int(lhs_mul, 2);
                             }
                             other => panic!("expected multiplication head, got {other:?}"),
@@ -379,7 +386,7 @@ mod tests {
                 assert_int(rhs, 2);
                 match f.as_ref() {
                     Expr::App(op, lhs) => {
-                        assert_var(op, "+");
+                        assert_op(op, Op::Add);
                         assert_int(lhs, 1);
                     }
                     other => panic!("expected partial prefix op as function, got {other:?}"),
@@ -397,7 +404,7 @@ mod tests {
                 assert_int(rhs, 2);
                 match f.as_ref() {
                     Expr::App(op, lhs) => {
-                        assert_var(op, "+");
+                        assert_op(op, Op::Add);
                         assert_int(lhs, 1);
                     }
                     other => panic!("expected left-associated operator application, got {other:?}"),

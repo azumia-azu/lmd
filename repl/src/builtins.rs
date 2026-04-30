@@ -2,107 +2,89 @@ use std::collections::HashMap;
 use std::fmt::Display;
 
 use eyre::{Result, bail, eyre};
-use lmd_core::ast::{Literal, Number};
+use lmd_core::ast::{Literal, Number, Op};
 
 use crate::eval::Value;
 use crate::eval::force_whnf;
 use crate::eval::show_value;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-enum BuiltinKind {
-    Add,
-    Sub,
-    Mul,
-    Div,
-    Ge,
-    Gt,
-    Le,
-    Lt,
-    Eq,
-    Ne,
-    Not,
-    Neg,
-    And,
-    Or,
-}
-
 #[derive(Debug, Clone, Copy)]
 struct BuiltinSpec {
     name: &'static str,
     arity: usize,
-    kind: BuiltinKind,
+    kind: Op,
 }
 
 const BUILTIN_SPECS: &[BuiltinSpec] = &[
     BuiltinSpec {
         name: "+",
         arity: 2,
-        kind: BuiltinKind::Add,
+        kind: Op::Add,
     },
     BuiltinSpec {
         name: "-",
         arity: 2,
-        kind: BuiltinKind::Sub,
+        kind: Op::Sub,
     },
     BuiltinSpec {
         name: "*",
         arity: 2,
-        kind: BuiltinKind::Mul,
+        kind: Op::Mul,
     },
     BuiltinSpec {
         name: "/",
         arity: 2,
-        kind: BuiltinKind::Div,
+        kind: Op::Div,
     },
     BuiltinSpec {
         name: ">=",
         arity: 2,
-        kind: BuiltinKind::Ge,
+        kind: Op::Ge,
     },
     BuiltinSpec {
         name: ">",
         arity: 2,
-        kind: BuiltinKind::Gt,
+        kind: Op::Gt,
     },
     BuiltinSpec {
         name: "<=",
         arity: 2,
-        kind: BuiltinKind::Le,
+        kind: Op::Le,
     },
     BuiltinSpec {
         name: "<",
         arity: 2,
-        kind: BuiltinKind::Lt,
+        kind: Op::Lt,
     },
     BuiltinSpec {
         name: "==",
         arity: 2,
-        kind: BuiltinKind::Eq,
+        kind: Op::Eq,
     },
     BuiltinSpec {
         name: "!=",
         arity: 2,
-        kind: BuiltinKind::Ne,
+        kind: Op::Ne,
     },
     BuiltinSpec {
         name: "!",
         arity: 1,
-        kind: BuiltinKind::Not,
+        kind: Op::Not,
     },
     BuiltinSpec {
         name: "neg",
         arity: 1,
-        kind: BuiltinKind::Neg,
+        kind: Op::Neg,
     },
     BuiltinSpec {
         name: "&&",
         arity: 2,
-        kind: BuiltinKind::And,
+        kind: Op::And,
     },
     BuiltinSpec {
         name: "||",
         arity: 2,
-        kind: BuiltinKind::Or,
+        kind: Op::Or,
     },
 ];
 
@@ -122,7 +104,7 @@ pub fn builtin_functions() -> HashMap<String, Value> {
 #[derive(Debug, Clone)]
 pub struct BuiltinFunction {
     name: &'static str,
-    kind: BuiltinKind,
+    kind: Op,
     arity: usize,
     args: Vec<Value>,
 }
@@ -136,6 +118,15 @@ impl BuiltinFunction {
             args: Vec::with_capacity(spec.arity),
         }
     }
+}
+
+pub fn builtin_value_from_op(op: Op) -> Value {
+    let spec = BUILTIN_SPECS
+        .iter()
+        .find(|spec| spec.kind == op)
+        .copied()
+        .expect("missing builtin spec for operator");
+    Value::BuiltinFunction(BuiltinFunction::from_spec(spec))
 }
 
 impl Display for BuiltinFunction {
@@ -163,22 +154,22 @@ pub fn apply_builtin_function(mut builtin: BuiltinFunction, arg: Value) -> Resul
     execute_builtin(builtin.kind, &builtin.args)
 }
 
-fn execute_builtin(kind: BuiltinKind, args: &[Value]) -> Result<Value> {
+fn execute_builtin(kind: Op, args: &[Value]) -> Result<Value> {
     match (kind, args) {
-        (BuiltinKind::Add, [lhs, rhs]) => eval_add2(args2_whnf(lhs, rhs)?),
-        (BuiltinKind::Sub, [lhs, rhs]) => eval_sub2(args2_whnf(lhs, rhs)?),
-        (BuiltinKind::Mul, [lhs, rhs]) => eval_mul2(args2_whnf(lhs, rhs)?),
-        (BuiltinKind::Div, [lhs, rhs]) => eval_div2(args2_whnf(lhs, rhs)?),
-        (BuiltinKind::Ge, [lhs, rhs]) => eval_num_cmp2(args2_whnf(lhs, rhs)?, ">="),
-        (BuiltinKind::Gt, [lhs, rhs]) => eval_num_cmp2(args2_whnf(lhs, rhs)?, ">"),
-        (BuiltinKind::Le, [lhs, rhs]) => eval_num_cmp2(args2_whnf(lhs, rhs)?, "<="),
-        (BuiltinKind::Lt, [lhs, rhs]) => eval_num_cmp2(args2_whnf(lhs, rhs)?, "<"),
-        (BuiltinKind::Eq, [lhs, rhs]) => Ok(bool_lit(eval_eq2(args2_whnf(lhs, rhs)?)?)),
-        (BuiltinKind::Ne, [lhs, rhs]) => Ok(bool_lit(!eval_eq2(args2_whnf(lhs, rhs)?)?)),
-        (BuiltinKind::Not, [v]) => Ok(bool_lit(!expect_bool(&force_arg(v)?, "!")?)),
-        (BuiltinKind::Neg, [v]) => Ok(eval_neg(&force_arg(v)?)?),
-        (BuiltinKind::And, [lhs, rhs]) => eval_and(lhs, rhs),
-        (BuiltinKind::Or, [lhs, rhs]) => eval_or(lhs, rhs),
+        (Op::Add, [lhs, rhs]) => eval_add2(args2_whnf(lhs, rhs)?),
+        (Op::Sub, [lhs, rhs]) => eval_sub2(args2_whnf(lhs, rhs)?),
+        (Op::Mul, [lhs, rhs]) => eval_mul2(args2_whnf(lhs, rhs)?),
+        (Op::Div, [lhs, rhs]) => eval_div2(args2_whnf(lhs, rhs)?),
+        (Op::Ge, [lhs, rhs]) => eval_num_cmp2(args2_whnf(lhs, rhs)?, ">="),
+        (Op::Gt, [lhs, rhs]) => eval_num_cmp2(args2_whnf(lhs, rhs)?, ">"),
+        (Op::Le, [lhs, rhs]) => eval_num_cmp2(args2_whnf(lhs, rhs)?, "<="),
+        (Op::Lt, [lhs, rhs]) => eval_num_cmp2(args2_whnf(lhs, rhs)?, "<"),
+        (Op::Eq, [lhs, rhs]) => Ok(bool_lit(eval_eq2(args2_whnf(lhs, rhs)?)?)),
+        (Op::Ne, [lhs, rhs]) => Ok(bool_lit(!eval_eq2(args2_whnf(lhs, rhs)?)?)),
+        (Op::Not, [v]) => Ok(bool_lit(!expect_bool(&force_arg(v)?, "!")?)),
+        (Op::Neg, [v]) => Ok(eval_neg(&force_arg(v)?)?),
+        (Op::And, [lhs, rhs]) => eval_and(lhs, rhs),
+        (Op::Or, [lhs, rhs]) => eval_or(lhs, rhs),
         _ => bail!("builtin arity/type mismatch"),
     }
 }
@@ -447,7 +438,7 @@ fn eval_or(lhs: &Value, rhs: &Value) -> Result<Value> {
 mod tests {
     use super::*;
 
-    fn int(v: isize) -> Value {
+    fn int(v: i128) -> Value {
         Value::Literal(Literal::Number(Number::Int(v)))
     }
 
@@ -516,7 +507,7 @@ mod tests {
 
     #[test]
     fn div_int_overflow_returns_error() {
-        let err = apply_symbol("/", vec![int(isize::MIN), int(-1)]).unwrap_err();
+        let err = apply_symbol("/", vec![int(i128::MIN), int(-1)]).unwrap_err();
         assert!(
             err.to_string().contains("overflow") || err.to_string().contains("division by zero")
         );
@@ -575,16 +566,16 @@ mod tests {
 
     #[test]
     fn eq_large_ints_preserves_integer_precision() {
-        let lhs = int((1isize << 54) + 1);
-        let rhs = int((1isize << 54) + 2);
+        let lhs = int((1i128 << 54) + 1);
+        let rhs = int((1i128 << 54) + 2);
         let result = apply_symbol("==", vec![lhs, rhs]).unwrap();
         assert!(matches!(result, Value::Literal(Literal::Bool(false))));
     }
 
     #[test]
     fn cmp_large_ints_preserves_integer_precision() {
-        let lhs = int((1isize << 54) + 2);
-        let rhs = int((1isize << 54) + 1);
+        let lhs = int((1i128 << 54) + 2);
+        let rhs = int((1i128 << 54) + 1);
         let result = apply_symbol(">", vec![lhs, rhs]).unwrap();
         assert!(matches!(result, Value::Literal(Literal::Bool(true))));
     }
