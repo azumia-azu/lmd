@@ -1,4 +1,4 @@
-use crate::ast::Expr;
+use crate::ast::{Expr, Literal, Number, Op};
 use crate::grammar;
 use lalrpop_util::{ParseError as LrParseError, lexer};
 
@@ -56,18 +56,80 @@ impl std::fmt::Display for ParseError {
 impl std::error::Error for ParseError {}
 
 type InternalParseError<'a> = LrParseError<usize, lexer::Token<'a>, &'static str>;
+const I64_MAX_PLUS_ONE: i128 = i64::MAX as i128 + 1;
 
 pub fn parse(input: &str) -> Result<Expr, ParseError> {
-    grammar::ExprParser::new()
+    let expr = grammar::ExprParser::new()
         .parse(input)
-        .map_err(ParseError::from_internal)
+        .map_err(ParseError::from_internal)?;
+    normalize_bounded_ints(expr).map_err(|message| ParseError {
+        kind: ParseErrorKind::User,
+        location: 0,
+        found: None,
+        expected: vec![],
+        message: Some(message.to_string()),
+    })
 }
 
 pub fn try_parse(input: &str) -> Result<(), ParseError> {
-    grammar::ExprParser::new()
+    let expr = grammar::ExprParser::new()
         .parse(input)
+        .map_err(ParseError::from_internal)?;
+    normalize_bounded_ints(expr)
         .map(|_| ())
-        .map_err(ParseError::from_internal)
+        .map_err(|message| ParseError {
+            kind: ParseErrorKind::User,
+            location: 0,
+            found: None,
+            expected: vec![],
+            message: Some(message.to_string()),
+        })
+}
+
+fn normalize_bounded_ints(expr: Expr) -> Result<Expr, &'static str> {
+    match expr {
+        Expr::Literal(Literal::Number(Number::Int(v))) => {
+            if v <= i64::MAX as i128 {
+                Ok(Expr::Literal(Literal::Number(Number::Int(v))))
+            } else {
+                Err("integer literal overflow")
+            }
+        }
+        Expr::Literal(lit) => Ok(Expr::Literal(lit)),
+        Expr::Var(name) => Ok(Expr::Var(name)),
+        Expr::Op(op) => Ok(Expr::Op(op)),
+        Expr::Func(arg, body) => Ok(Expr::Func(arg, Box::new(normalize_bounded_ints(*body)?))),
+        Expr::App(lhs, rhs) => {
+            let lhs = normalize_bounded_ints(*lhs)?;
+            match (lhs, *rhs) {
+                (Expr::Op(Op::Neg), Expr::Literal(Literal::Number(Number::Int(v))))
+                    if v == I64_MAX_PLUS_ONE =>
+                {
+                    Ok(Expr::Literal(Literal::Number(Number::Int(i64::MIN as i128))))
+                }
+                (lhs, rhs) => Ok(Expr::App(
+                    Box::new(lhs),
+                    Box::new(normalize_bounded_ints(rhs)?),
+                )),
+            }
+        }
+        Expr::Let(bindings, body) => {
+            let mut normalized = Vec::with_capacity(bindings.len());
+            for (name, expr) in bindings {
+                normalized.push((name, normalize_bounded_ints(expr)?));
+            }
+            Ok(Expr::Let(normalized, Box::new(normalize_bounded_ints(*body)?)))
+        }
+        Expr::If {
+            cond,
+            then_branch,
+            else_branch,
+        } => Ok(Expr::If {
+            cond: Box::new(normalize_bounded_ints(*cond)?),
+            then_branch: Box::new(normalize_bounded_ints(*then_branch)?),
+            else_branch: Box::new(normalize_bounded_ints(*else_branch)?),
+        }),
+    }
 }
 
 impl ParseError {
@@ -121,8 +183,6 @@ impl ParseError {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ast::{Expr, Literal, Number, Op};
-
     fn assert_var(expr: &Expr, expected: &str) {
         match expr {
             Expr::Var(name) => assert_eq!(name, expected),
@@ -294,6 +354,18 @@ mod tests {
         let expr = parse("-42").unwrap();
         let inner = assert_prefix_op(&expr, Op::Neg);
         assert_int(inner, 42);
+    }
+
+    #[test]
+    fn parse_rejects_integer_literal_larger_than_i64() {
+        let input = (i128::from(i64::MAX) + 1).to_string();
+        let err = parse(&input).unwrap_err();
+        assert_eq!(err.kind, ParseErrorKind::User);
+        assert!(
+            err.message
+                .as_deref()
+                .is_some_and(|message| message.contains("integer literal overflow"))
+        );
     }
 
     #[test]

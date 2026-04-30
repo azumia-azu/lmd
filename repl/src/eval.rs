@@ -547,4 +547,11 @@ mod tests {
             Value::Literal(Literal::Number(Number::Int(v))) if v == i128::from(i64::MIN)
         ));
     }
+
+    #[test]
+    fn eval_addition_overflow_returns_error() {
+        let src = format!("{} + 1", i64::MAX);
+        let err = eval_src_to_whnf(&src).unwrap_err();
+        assert!(err.to_string().contains("integer overflow"));
+    }
 }

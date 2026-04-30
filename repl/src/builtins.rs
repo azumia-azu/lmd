@@ -220,6 +220,14 @@ fn as_number<'a>(v: &'a Value, op: &str) -> Result<&'a Number> {
     }
 }
 
+fn bounded_int(v: i128) -> Result<i64> {
+    i64::try_from(v).map_err(|_| eyre!("integer overflow"))
+}
+
+fn int_lit(v: i64) -> Value {
+    Value::Literal(Literal::Number(Number::Int(i128::from(v))))
+}
+
 fn eval_num_cmp(lhs: &Value, rhs: &Value, op: &str) -> Result<Value> {
     let out = match (as_number(lhs, op)?, as_number(rhs, op)?) {
         (Number::Int(l), Number::Int(r)) => match op {
@@ -318,7 +326,11 @@ fn eval_add(lhs: &Value, rhs: &Value) -> Result<Value> {
         (
             Value::Literal(Literal::Number(Number::Int(i1))),
             Value::Literal(Literal::Number(Number::Int(i2))),
-        ) => Ok(Value::Literal(Literal::Number(Number::Int(i1 + i2)))),
+        ) => Ok(int_lit(
+            bounded_int(*i1)?
+                .checked_add(bounded_int(*i2)?)
+                .ok_or_else(|| eyre!("integer overflow"))?,
+        )),
         _ => bail!(
             "type error: incompatible types for operator +: {}, {}",
             show_value(lhs),
@@ -336,9 +348,11 @@ fn eval_neg(hs: &Value) -> Result<Value> {
         Value::Literal(Literal::Number(Number::Float(_))) => Ok(Value::Literal(
             Literal::Number(Number::Float(-as_f64_number(hs, "-")?)),
         )),
-        Value::Literal(Literal::Number(Number::Int(i))) => {
-            Ok(Value::Literal(Literal::Number(Number::Int(-*i))))
-        }
+        Value::Literal(Literal::Number(Number::Int(i))) => Ok(int_lit(
+            bounded_int(*i)?
+                .checked_neg()
+                .ok_or_else(|| eyre!("integer overflow"))?,
+        )),
         _ => bail!("type error: incompatible types for operator -: {}", show_value(hs)),
     }
 }
@@ -354,7 +368,11 @@ fn eval_sub(lhs: &Value, rhs: &Value) -> Result<Value> {
         (
             Value::Literal(Literal::Number(Number::Int(i1))),
             Value::Literal(Literal::Number(Number::Int(i2))),
-        ) => Ok(Value::Literal(Literal::Number(Number::Int(i1 - i2)))),
+        ) => Ok(int_lit(
+            bounded_int(*i1)?
+                .checked_sub(bounded_int(*i2)?)
+                .ok_or_else(|| eyre!("integer overflow"))?,
+        )),
         _ => bail!(
             "type error: incompatible types for operator -: {}, {}",
             show_value(lhs),
@@ -378,7 +396,11 @@ fn eval_mul(lhs: &Value, rhs: &Value) -> Result<Value> {
         (
             Value::Literal(Literal::Number(Number::Int(i1))),
             Value::Literal(Literal::Number(Number::Int(i2))),
-        ) => Ok(Value::Literal(Literal::Number(Number::Int(i1 * i2)))),
+        ) => Ok(int_lit(
+            bounded_int(*i1)?
+                .checked_mul(bounded_int(*i2)?)
+                .ok_or_else(|| eyre!("integer overflow"))?,
+        )),
         _ => bail!(
             "type error: incompatible types for operator *: {}, {}",
             show_value(lhs),
@@ -402,10 +424,11 @@ fn eval_div(lhs: &Value, rhs: &Value) -> Result<Value> {
         (
             Value::Literal(Literal::Number(Number::Int(i1))),
             Value::Literal(Literal::Number(Number::Int(i2))),
-        ) => Ok(Value::Literal(Literal::Number(Number::Int(
-            i1.checked_div(*i2)
+        ) => Ok(int_lit(
+            bounded_int(*i1)?
+                .checked_div(bounded_int(*i2)?)
                 .ok_or_else(|| eyre!("integer division overflow or division by zero"))?,
-        )))),
+        )),
         _ => bail!(
             "type error: incompatible types for operator /: {}, {}",
             show_value(lhs),
@@ -507,7 +530,7 @@ mod tests {
 
     #[test]
     fn div_int_overflow_returns_error() {
-        let err = apply_symbol("/", vec![int(i128::MIN), int(-1)]).unwrap_err();
+        let err = apply_symbol("/", vec![int(i128::from(i64::MIN)), int(-1)]).unwrap_err();
         assert!(
             err.to_string().contains("overflow") || err.to_string().contains("division by zero")
         );
