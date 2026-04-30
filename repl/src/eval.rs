@@ -497,4 +497,31 @@ mod tests {
         let err = eval_src_to_whnf("1 + missing").unwrap_err();
         assert!(err.to_string().contains("unbound variable"));
     }
+
+    #[test]
+    fn eval_negative_integer_literal_via_prefix_negation() {
+        let whnf = eval_src_to_whnf("-42").unwrap();
+        assert!(matches!(
+            whnf,
+            Value::Literal(Literal::Number(Number::Int(-42)))
+        ));
+    }
+
+    #[test]
+    fn eval_negated_expression_via_prefix_negation() {
+        let whnf = eval_src_to_whnf("-(1 + 2)").unwrap();
+        assert!(matches!(
+            whnf,
+            Value::Literal(Literal::Number(Number::Int(-3)))
+        ));
+    }
+
+    #[test]
+    fn eval_subtract_negative_rhs() {
+        let whnf = eval_src_to_whnf("1 - -2").unwrap();
+        assert!(matches!(
+            whnf,
+            Value::Literal(Literal::Number(Number::Int(3)))
+        ));
+    }
 }

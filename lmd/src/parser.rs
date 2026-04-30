@@ -137,6 +137,16 @@ mod tests {
         }
     }
 
+    fn assert_prefix_op<'a>(expr: &'a Expr, expected_op: &str) -> &'a Expr {
+        match expr {
+            Expr::App(op, inner) => {
+                assert_var(op, expected_op);
+                inner.as_ref()
+            }
+            other => panic!("expected prefix operator application {expected_op}, got {other:?}"),
+        }
+    }
+
     fn assert_left_assoc_var_app(expr: &Expr, names: &[&str]) {
         assert!(!names.is_empty(), "names must not be empty");
         if names.len() == 1 {
@@ -273,9 +283,43 @@ mod tests {
     }
 
     #[test]
-    fn parse_negative_integer_literal() {
+    fn parse_negative_integer_desugars_to_neg_application() {
         let expr = parse("-42").unwrap();
-        assert_int(&expr, -42);
+        let inner = assert_prefix_op(&expr, "neg");
+        assert_int(inner, 42);
+    }
+
+    #[test]
+    fn parse_negated_variable_desugars_to_neg_application() {
+        let expr = parse("-x").unwrap();
+        let inner = assert_prefix_op(&expr, "neg");
+        assert_var(inner, "x");
+    }
+
+    #[test]
+    fn parse_negated_grouped_expression_desugars_to_neg_application() {
+        let expr = parse("-(1+2)").unwrap();
+        let inner = assert_prefix_op(&expr, "neg");
+        assert!(matches!(inner, Expr::App(_, _)));
+    }
+
+    #[test]
+    fn parse_subtract_negative_rhs_distinguishes_binary_and_prefix_minus() {
+        let expr = parse("1 - -2").unwrap();
+        match &expr {
+            Expr::App(f, rhs) => {
+                let neg_rhs = assert_prefix_op(rhs, "neg");
+                assert_int(neg_rhs, 2);
+                match f.as_ref() {
+                    Expr::App(op, lhs) => {
+                        assert_var(op, "-");
+                        assert_int(lhs, 1);
+                    }
+                    other => panic!("expected subtraction head, got {other:?}"),
+                }
+            }
+            other => panic!("expected subtraction expression, got {other:?}"),
+        }
     }
 
     #[test]

@@ -21,6 +21,7 @@ enum BuiltinKind {
     Eq,
     Ne,
     Not,
+    Neg,
     And,
     Or,
 }
@@ -87,6 +88,11 @@ const BUILTIN_SPECS: &[BuiltinSpec] = &[
         name: "!",
         arity: 1,
         kind: BuiltinKind::Not,
+    },
+    BuiltinSpec {
+        name: "neg",
+        arity: 1,
+        kind: BuiltinKind::Neg,
     },
     BuiltinSpec {
         name: "&&",
@@ -170,6 +176,7 @@ fn execute_builtin(kind: BuiltinKind, args: &[Value]) -> Result<Value> {
         (BuiltinKind::Eq, [lhs, rhs]) => Ok(bool_lit(eval_eq2(args2_whnf(lhs, rhs)?)?)),
         (BuiltinKind::Ne, [lhs, rhs]) => Ok(bool_lit(!eval_eq2(args2_whnf(lhs, rhs)?)?)),
         (BuiltinKind::Not, [v]) => Ok(bool_lit(!expect_bool(&force_arg(v)?, "!")?)),
+        (BuiltinKind::Neg, [v]) => Ok(eval_neg(&force_arg(v)?)?),
         (BuiltinKind::And, [lhs, rhs]) => eval_and(lhs, rhs),
         (BuiltinKind::Or, [lhs, rhs]) => eval_or(lhs, rhs),
         _ => bail!("builtin arity/type mismatch"),
@@ -331,6 +338,18 @@ fn eval_add(lhs: &Value, rhs: &Value) -> Result<Value> {
 
 fn eval_add2((lhs, rhs): (Value, Value)) -> Result<Value> {
     eval_add(&lhs, &rhs)
+}
+
+fn eval_neg(hs: &Value) -> Result<Value> {
+    match hs {
+        Value::Literal(Literal::Number(Number::Float(_))) => Ok(Value::Literal(
+            Literal::Number(Number::Float(-as_f64_number(hs, "-")?)),
+        )),
+        Value::Literal(Literal::Number(Number::Int(i))) => {
+            Ok(Value::Literal(Literal::Number(Number::Int(-*i))))
+        }
+        _ => bail!("type error: incompatible types for operator -: {}", show_value(hs)),
+    }
 }
 
 fn eval_sub(lhs: &Value, rhs: &Value) -> Result<Value> {
@@ -519,6 +538,30 @@ mod tests {
     }
 
     #[test]
+    fn neg_int_returns_int_literal() {
+        let result = apply_symbol("neg", vec![int(2)]).unwrap();
+        assert!(matches!(
+            result,
+            Value::Literal(Literal::Number(Number::Int(-2)))
+        ));
+    }
+
+    #[test]
+    fn neg_float_returns_float_literal() {
+        let result = apply_symbol("neg", vec![float(2.5)]).unwrap();
+        match result {
+            Value::Literal(Literal::Number(Number::Float(v))) => assert_eq!(v, -2.5),
+            other => panic!("expected float literal, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn neg_non_numeric_returns_type_error() {
+        let err = apply_symbol("neg", vec![bool_v(true)]).unwrap_err();
+        assert!(err.to_string().contains("operator -"));
+    }
+
+    #[test]
     fn and_bools_returns_bool_literal() {
         let result = apply_symbol("&&", vec![bool_v(true), bool_v(false)]).unwrap();
         assert!(matches!(result, Value::Literal(Literal::Bool(false))));
@@ -549,7 +592,7 @@ mod tests {
     #[test]
     fn builtin_registry_contains_logic_and_compare_ops() {
         let env = builtin_functions();
-        for op in ["==", "!=", "<", "<=", ">", ">=", "!", "&&", "||"] {
+        for op in ["==", "!=", "<", "<=", ">", ">=", "!", "neg", "&&", "||"] {
             assert!(env.contains_key(op), "missing builtin op: {op}");
         }
     }
