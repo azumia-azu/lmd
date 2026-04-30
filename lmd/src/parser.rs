@@ -107,6 +107,9 @@ fn normalize_bounded_ints(expr: Expr) -> Result<Expr, &'static str> {
                 {
                     Ok(Expr::Literal(Literal::Number(Number::Int(i64::MIN as i128))))
                 }
+                (lhs, _) if matches_prefix_negation(&lhs) => {
+                    Err("cannot apply a parenthesized negative expression")
+                }
                 (lhs, rhs) => Ok(Expr::App(
                     Box::new(lhs),
                     Box::new(normalize_bounded_ints(rhs)?),
@@ -130,6 +133,10 @@ fn normalize_bounded_ints(expr: Expr) -> Result<Expr, &'static str> {
             else_branch: Box::new(normalize_bounded_ints(*else_branch)?),
         }),
     }
+}
+
+fn matches_prefix_negation(expr: &Expr) -> bool {
+    matches!(expr, Expr::App(op, _) if matches!(op.as_ref(), Expr::Op(Op::Neg)))
 }
 
 impl ParseError {
@@ -399,6 +406,17 @@ mod tests {
             }
             other => panic!("expected subtraction expression, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn parse_rejects_applying_parenthesized_negative_literal() {
+        let err = parse("((-1) 2)").unwrap_err();
+        assert_eq!(err.kind, ParseErrorKind::User);
+        assert!(
+            err.message
+                .as_deref()
+                .is_some_and(|message| message.contains("cannot apply a parenthesized negative"))
+        );
     }
 
     #[test]
