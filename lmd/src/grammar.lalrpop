@@ -28,18 +28,12 @@ IfExpr: ast::Expr = {
 }
 
 LetExpr: ast::Expr = {
-    "let" <bindings: BindingList> "in" <body: Expr> => {
-        ast::Expr::Let(bindings, Box::new(body))
-    }
-}
-
-BindingList: Vec<(String, ast::Expr)> = {
-    <b:Binding> <rest:(";" <Binding>)*> <_trail:";"?> => {
+    "let" <b:Binding> <rest:(";" <Binding>)*> <_trail:";"?> "in" <body: Expr> => {
         let mut bindings = vec![b];
         for b2 in rest {
             bindings.push(b2);
         }
-        bindings
+        ast::Expr::Let(bindings, Box::new(body))
     }
 }
 
@@ -62,18 +56,16 @@ OrExpr: ast::Expr = {
 };
 
 AndExpr: ast::Expr = {
-    <head: NotExpr> <tail:(AndOp NotExpr)*> => {
+    <head: EqualExpr> <tail:(AndOp EqualExpr)*> => {
         tail.into_iter().fold(head, |lhs, (op, rhs)| {
             ast::mk_infix(op, lhs, rhs)
         })
     }
 };
 
-NotExpr: ast::Expr = {
-    <op: NotOp> <expr: NotExpr> => {
-        ast::Expr::App(Box::new(ast::Expr::Var(op)), Box::new(expr))
-    },
-    <e: EqualExpr> => e,
+PrefixExpr: ast::Expr = {
+    <op: PrefixOp> <expr: PrefixExpr> => ast::mk_prefix(op, expr),
+    <e: AppExpr> => e,
 };
 
 EqualExpr: ast::Expr = {
@@ -93,19 +85,29 @@ CompareExpr: ast::Expr = {
 };
 
 AddExpr: ast::Expr = {
-    <head:FactorExpr> <tail:(AddOp FactorExpr)*> => {
+    <head:MulExpr> <tail:(AddOp MulExpr)*> => {
         tail.into_iter().fold(head, |lhs, (op, rhs)| {
             ast::mk_infix(op, lhs, rhs)
         })
     }
 };
 
-FactorExpr: ast::Expr = {
-    <head:AppExpr> <tail:(FactorOp AppExpr)*> => {
+MulExpr: ast::Expr = {
+    <head:PrefixExpr> <tail:(MulOp PrefixExpr)*> => {
         tail.into_iter().fold(head, |lhs, (op, rhs)| {
             ast::mk_infix(op, lhs, rhs)
         })
     }
+};
+
+Atom: ast::Expr = {
+    <l:Literal> => ast::Expr::Literal(l),
+    <i: Ident> => ast::Expr::Var(i),
+    "(" <op: PrefixCallableOp> <arg: Expr> ")" => ast::mk_prefix(op, arg),
+    "(" <op: Operator> ")" => ast::Expr::Op(op),
+    "(" <e: Expr> ")" => e,
+    "{" <e: Expr> "}" => e,
+
 };
 
 AppExpr: ast::Expr = {
@@ -116,21 +118,19 @@ AppExpr: ast::Expr = {
     }
 };
 
-Atom: ast::Expr = {
-    <l:Literal> => ast::Expr::Literal(l),
-    <i: Ident> => ast::Expr::Var(i),
-    "(" <op: BinaryOp> <arg: Expr> ")" => ast::Expr::App(Box::new(ast::Expr::Var(op)), Box::new(arg)),
-    "(" <op: Operator> ")" => ast::Expr::Var(op),
-    "(" <e: Expr> ")" => e,
-    "{" <e: Expr> "}" => e,
-
-};
-
 Ident: String = <s:IDENT> => s.to_string();
 
 Num: ast::Number = {
-    <i: r"-?[0-9]+"> => ast::Number::Int(i.parse().unwrap()),
-    <f: r"-?[0-9]+\.[0-9]+"> => ast::Number::Float(f.parse().unwrap()),
+    <i: r"[0-9]+"> =>? {
+        Ok(i.parse::<i128>()
+            .map(ast::Number::Int)
+            .map_err(|_| "integer literal overflow")?)
+    },
+    <f: r"[0-9]+\.[0-9]+"> =>? {
+        Ok(f.parse::<f64>()
+            .map(ast::Number::Float)
+            .map_err(|_| "invalid float literal")?)
+    },
 };
 
 String: String = <s:r#""([^"\\]|\\.)*""#> => {
@@ -145,13 +145,13 @@ Literal: ast::Literal = {
     "false" => ast::Literal::Bool(false),
 };
 
-Operator: String = {
+Operator: ast::Op = {
     <op: BinaryOp> => op,
-    <op: UnaryOp> => op,
+    "!" => ast::Op::Not,
 };
 
-BinaryOp: String = {
-    <op:FactorOp> => op,
+BinaryOp: ast::Op = {
+    <op:MulOp> => op,
     <op:AddOp> => op,
     <op:CompareOp> => op,
     <op:EqualOp> => op,
@@ -159,40 +159,46 @@ BinaryOp: String = {
     <op: OrOp> => op,
 };
 
-UnaryOp: String = {
-    <op:NotOp> => op,
+PrefixCallableOp: ast::Op = {
+    <op:MulOp> => op,
+    "+" => ast::Op::Add,
+    <op:CompareOp> => op,
+    <op:EqualOp> => op,
+    <op: AndOp> => op,
+    <op: OrOp> => op,
 };
 
-OrOp: String = {
-    "||" => "||".to_string(),
+OrOp: ast::Op = {
+    "||" => ast::Op::Or,
 };
 
-AndOp: String = {
-    "&&" => "&&".to_string(),
+AndOp: ast::Op = {
+    "&&" => ast::Op::And,
 };
 
-NotOp: String = {
-    "!" => "!".to_string(),
+PrefixOp: ast::Op = {
+    "!" => ast::Op::Not,
+    "-" => ast::Op::Neg,
 };
 
-EqualOp: String = {
-    "==" => "==".to_string(),
-    "!=" => "!=".to_string(),
+EqualOp: ast::Op = {
+    "==" => ast::Op::Eq,
+    "!=" => ast::Op::Ne,
 };
 
-CompareOp: String = {
-    "<" => "<".to_string(),
-    ">" => ">".to_string(),
-    "<=" => "<=".to_string(),
-    ">=" => ">=".to_string(),
+CompareOp: ast::Op = {
+    "<" => ast::Op::Lt,
+    ">" => ast::Op::Gt,
+    "<=" => ast::Op::Le,
+    ">=" => ast::Op::Ge,
 };
 
-AddOp: String = {
-    "+" => "+".to_string(),
-    "-" => "-".to_string(),
+AddOp: ast::Op = {
+    "+" => ast::Op::Add,
+    "-" => ast::Op::Sub,
 };
 
-FactorOp: String = {
-    "*" => "*".to_string(),
-    "/" => "/".to_string(),
+MulOp: ast::Op = {
+    "*" => ast::Op::Mul,
+    "/" => ast::Op::Div,
 }

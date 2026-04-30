@@ -1,4 +1,4 @@
-use crate::ast::Expr;
+use crate::ast::{Expr, Literal, Number, Op};
 use crate::grammar;
 use lalrpop_util::{ParseError as LrParseError, lexer};
 
@@ -56,18 +56,88 @@ impl std::fmt::Display for ParseError {
 impl std::error::Error for ParseError {}
 
 type InternalParseError<'a> = LrParseError<usize, lexer::Token<'a>, &'static str>;
+const I64_MAX_PLUS_ONE: i128 = i64::MAX as i128 + 1;
 
 pub fn parse(input: &str) -> Result<Expr, ParseError> {
-    grammar::ExprParser::new()
+    let expr = grammar::ExprParser::new()
         .parse(input)
-        .map_err(ParseError::from_internal)
+        .map_err(ParseError::from_internal)?;
+    normalize_bounded_ints(expr).map_err(|message| ParseError {
+        kind: ParseErrorKind::User,
+        location: 0,
+        found: None,
+        expected: vec![],
+        message: Some(message.to_string()),
+    })
 }
 
 pub fn try_parse(input: &str) -> Result<(), ParseError> {
-    grammar::ExprParser::new()
+    let expr = grammar::ExprParser::new()
         .parse(input)
+        .map_err(ParseError::from_internal)?;
+    normalize_bounded_ints(expr)
         .map(|_| ())
-        .map_err(ParseError::from_internal)
+        .map_err(|message| ParseError {
+            kind: ParseErrorKind::User,
+            location: 0,
+            found: None,
+            expected: vec![],
+            message: Some(message.to_string()),
+        })
+}
+
+fn normalize_bounded_ints(expr: Expr) -> Result<Expr, &'static str> {
+    match expr {
+        Expr::Literal(Literal::Number(Number::Int(v))) => {
+            if v <= i64::MAX as i128 {
+                Ok(Expr::Literal(Literal::Number(Number::Int(v))))
+            } else {
+                Err("integer literal overflow")
+            }
+        }
+        Expr::Literal(lit) => Ok(Expr::Literal(lit)),
+        Expr::Var(name) => Ok(Expr::Var(name)),
+        Expr::Op(op) => Ok(Expr::Op(op)),
+        Expr::Func(arg, body) => Ok(Expr::Func(arg, Box::new(normalize_bounded_ints(*body)?))),
+        Expr::App(lhs, rhs) => {
+            let lhs = normalize_bounded_ints(*lhs)?;
+            match (lhs, *rhs) {
+                (Expr::Op(Op::Neg), Expr::Literal(Literal::Number(Number::Int(v))))
+                    if v == I64_MAX_PLUS_ONE =>
+                {
+                    Ok(Expr::Literal(Literal::Number(Number::Int(i64::MIN as i128))))
+                }
+                (lhs, _) if matches_non_callable_negative(&lhs) => {
+                    Err("cannot apply a parenthesized negative expression")
+                }
+                (lhs, rhs) => Ok(Expr::App(
+                    Box::new(lhs),
+                    Box::new(normalize_bounded_ints(rhs)?),
+                )),
+            }
+        }
+        Expr::Let(bindings, body) => {
+            let mut normalized = Vec::with_capacity(bindings.len());
+            for (name, expr) in bindings {
+                normalized.push((name, normalize_bounded_ints(expr)?));
+            }
+            Ok(Expr::Let(normalized, Box::new(normalize_bounded_ints(*body)?)))
+        }
+        Expr::If {
+            cond,
+            then_branch,
+            else_branch,
+        } => Ok(Expr::If {
+            cond: Box::new(normalize_bounded_ints(*cond)?),
+            then_branch: Box::new(normalize_bounded_ints(*then_branch)?),
+            else_branch: Box::new(normalize_bounded_ints(*else_branch)?),
+        }),
+    }
+}
+
+fn matches_non_callable_negative(expr: &Expr) -> bool {
+    matches!(expr, Expr::App(op, _) if matches!(op.as_ref(), Expr::Op(Op::Neg)))
+        || matches!(expr, Expr::Literal(Literal::Number(Number::Int(v))) if *v < 0)
 }
 
 impl ParseError {
@@ -121,8 +191,6 @@ impl ParseError {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ast::{Expr, Literal, Number};
-
     fn assert_var(expr: &Expr, expected: &str) {
         match expr {
             Expr::Var(name) => assert_eq!(name, expected),
@@ -130,10 +198,27 @@ mod tests {
         }
     }
 
-    fn assert_int(expr: &Expr, expected: isize) {
+    fn assert_op(expr: &Expr, expected: Op) {
+        match expr {
+            Expr::Op(op) => assert_eq!(*op, expected),
+            other => panic!("expected operator '{expected:?}', got {other:?}"),
+        }
+    }
+
+    fn assert_int(expr: &Expr, expected: i128) {
         match expr {
             Expr::Literal(Literal::Number(Number::Int(v))) => assert_eq!(*v, expected),
             other => panic!("expected int literal {expected}, got {other:?}"),
+        }
+    }
+
+    fn assert_prefix_op<'a>(expr: &'a Expr, expected_op: Op) -> &'a Expr {
+        match expr {
+            Expr::App(op, inner) => {
+                assert_op(op, expected_op);
+                inner.as_ref()
+            }
+            other => panic!("expected prefix operator application {expected_op}, got {other:?}"),
         }
     }
 
@@ -273,9 +358,117 @@ mod tests {
     }
 
     #[test]
-    fn parse_negative_integer_literal() {
+    fn parse_negative_integer_desugars_to_neg_application() {
         let expr = parse("-42").unwrap();
-        assert_int(&expr, -42);
+        let inner = assert_prefix_op(&expr, Op::Neg);
+        assert_int(inner, 42);
+    }
+
+    #[test]
+    fn parse_rejects_integer_literal_larger_than_i64() {
+        let input = (i128::from(i64::MAX) + 1).to_string();
+        let err = parse(&input).unwrap_err();
+        assert_eq!(err.kind, ParseErrorKind::User);
+        assert!(
+            err.message
+                .as_deref()
+                .is_some_and(|message| message.contains("integer literal overflow"))
+        );
+    }
+
+    #[test]
+    fn parse_accepts_i64_max_literal() {
+        let expr = parse(&i64::MAX.to_string()).unwrap();
+        assert_int(&expr, i128::from(i64::MAX));
+    }
+
+    #[test]
+    fn parse_rejects_literal_smaller_than_i64_min() {
+        let input = format!("-{}", i128::from(i64::MAX) + 2);
+        let err = parse(&input).unwrap_err();
+        assert_eq!(err.kind, ParseErrorKind::User);
+        assert!(
+            err.message
+                .as_deref()
+                .is_some_and(|message| message.contains("integer literal overflow"))
+        );
+    }
+
+    #[test]
+    fn parse_negated_variable_desugars_to_neg_application() {
+        let expr = parse("-x").unwrap();
+        let inner = assert_prefix_op(&expr, Op::Neg);
+        assert_var(inner, "x");
+    }
+
+    #[test]
+    fn parse_negated_grouped_expression_desugars_to_neg_application() {
+        let expr = parse("-(1+2)").unwrap();
+        let inner = assert_prefix_op(&expr, Op::Neg);
+        assert!(matches!(inner, Expr::App(_, _)));
+    }
+
+    #[test]
+    fn parse_subtract_negative_rhs_distinguishes_binary_and_prefix_minus() {
+        let expr = parse("1 - -2").unwrap();
+        match &expr {
+            Expr::App(f, rhs) => {
+                let neg_rhs = assert_prefix_op(rhs, Op::Neg);
+                assert_int(neg_rhs, 2);
+                match f.as_ref() {
+                    Expr::App(op, lhs) => {
+                        assert_op(op, Op::Sub);
+                        assert_int(lhs, 1);
+                    }
+                    other => panic!("expected subtraction head, got {other:?}"),
+                }
+            }
+            other => panic!("expected subtraction expression, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parse_rejects_applying_parenthesized_negative_literal() {
+        let err = parse("((-1) 2)").unwrap_err();
+        assert_eq!(err.kind, ParseErrorKind::User);
+        assert!(
+            err.message
+                .as_deref()
+                .is_some_and(|message| message.contains("cannot apply a parenthesized negative"))
+        );
+    }
+
+    #[test]
+    fn parse_rejects_applying_parenthesized_min_int_literal() {
+        let err = parse("(-9223372036854775808) 2").unwrap_err();
+        assert_eq!(err.kind, ParseErrorKind::User);
+        assert!(
+            err.message
+                .as_deref()
+                .is_some_and(|message| message.contains("cannot apply a parenthesized negative"))
+        );
+    }
+
+    #[test]
+    fn parse_rejects_applying_parenthesized_negative_float_literal() {
+        let err = parse("(-1.0) 2").unwrap_err();
+        assert_eq!(err.kind, ParseErrorKind::User);
+        assert!(
+            err.message
+                .as_deref()
+                .is_some_and(|message| message.contains("cannot apply a parenthesized negative"))
+        );
+    }
+
+    #[test]
+    fn parse_rejects_applying_parenthesized_negative_expression() {
+        let err = parse("((-(1 + 2)) 3)").unwrap_err();
+        assert_eq!(err.kind, ParseErrorKind::User);
+        assert!(
+            err.message
+                .as_deref()
+                .is_some_and(|message| message.contains("cannot apply a parenthesized negative"))
+        );
     }
 
     #[test]
@@ -286,7 +479,7 @@ mod tests {
                 assert_int(rhs, 2);
                 match f1.as_ref() {
                     Expr::App(op, lhs) => {
-                        assert_var(op, "+");
+                        assert_op(op, Op::Add);
                         assert_int(lhs, 1);
                     }
                     other => panic!("expected operator application head, got {other:?}"),
@@ -303,7 +496,7 @@ mod tests {
             Expr::App(f1, rhs_add) => {
                 match f1.as_ref() {
                     Expr::App(op_add, lhs_add) => {
-                        assert_var(op_add, "+");
+                        assert_op(op_add, Op::Add);
                         assert_int(lhs_add, 1);
                     }
                     other => panic!("expected addition head, got {other:?}"),
@@ -314,7 +507,7 @@ mod tests {
                         assert_int(rhs_mul, 3);
                         match f2.as_ref() {
                             Expr::App(op_mul, lhs_mul) => {
-                                assert_var(op_mul, "*");
+                                assert_op(op_mul, Op::Mul);
                                 assert_int(lhs_mul, 2);
                             }
                             other => panic!("expected multiplication head, got {other:?}"),
@@ -335,7 +528,7 @@ mod tests {
                 assert_int(rhs, 2);
                 match f.as_ref() {
                     Expr::App(op, lhs) => {
-                        assert_var(op, "+");
+                        assert_op(op, Op::Add);
                         assert_int(lhs, 1);
                     }
                     other => panic!("expected partial prefix op as function, got {other:?}"),
@@ -353,7 +546,7 @@ mod tests {
                 assert_int(rhs, 2);
                 match f.as_ref() {
                     Expr::App(op, lhs) => {
-                        assert_var(op, "+");
+                        assert_op(op, Op::Add);
                         assert_int(lhs, 1);
                     }
                     other => panic!("expected left-associated operator application, got {other:?}"),

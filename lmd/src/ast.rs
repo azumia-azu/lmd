@@ -17,6 +17,10 @@ pub enum Expr {
     /// Variable: 表示一个变量，通常是一个标识符。
     Var(String),
 
+    /// Internal operator reference emitted by the parser.
+    /// Unlike `Var`, this does not participate in user name resolution.
+    Op(Op),
+
     /// Lambda abstraction: 表示一个匿名函数，通常使用反斜杠（\）或 lambda 关键字来表示。
     /// 例如，表达式 \x. x + 1 表示一个匿名函数，接受一个参数 x，并返回 x + 1 的结果。
     /// 在 Lmd 中，lambda 表达式的优先级最低，这意味着在没有括号的情况下，lambda 表达式会绑定最松。例如，表达式 \x. f x 会被解析为 \x. (f x)，而不是 (\x. f
@@ -57,8 +61,26 @@ pub enum Literal {
 
 #[derive(Clone, Debug)]
 pub enum Number {
-    Int(isize),
+    Int(i128),
     Float(f64),
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum Op {
+    Add,
+    Sub,
+    Mul,
+    Div,
+    Ge,
+    Gt,
+    Le,
+    Lt,
+    Eq,
+    Ne,
+    Not,
+    Neg,
+    And,
+    Or,
 }
 
 impl Display for Literal {
@@ -80,9 +102,35 @@ impl Display for Number {
     }
 }
 
-pub fn mk_infix(op: String, lhs: Expr, rhs: Expr) -> Expr {
+impl Display for Op {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let symbol = match self {
+            Self::Add => "+",
+            Self::Sub => "-",
+            Self::Mul => "*",
+            Self::Div => "/",
+            Self::Ge => ">=",
+            Self::Gt => ">",
+            Self::Le => "<=",
+            Self::Lt => "<",
+            Self::Eq => "==",
+            Self::Ne => "!=",
+            Self::Not => "!",
+            Self::Neg => "neg",
+            Self::And => "&&",
+            Self::Or => "||",
+        };
+        write!(f, "{symbol}")
+    }
+}
+
+pub fn mk_infix(op: Op, lhs: Expr, rhs: Expr) -> Expr {
     Expr::App(
-        Box::new(Expr::App(Box::new(Expr::Var(op)), Box::new(lhs))),
+        Box::new(Expr::App(Box::new(Expr::Op(op)), Box::new(lhs))),
         Box::new(rhs),
     )
+}
+
+pub fn mk_prefix(op: Op, expr: Expr) -> Expr {
+    Expr::App(Box::new(Expr::Op(op)), Box::new(expr))
 }
