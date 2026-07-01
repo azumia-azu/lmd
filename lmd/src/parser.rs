@@ -238,6 +238,19 @@ mod tests {
         }
     }
 
+    fn assert_app_with_var_and_arg<F>(expr: &Expr, expected_name: &str, assert_arg: F)
+    where
+        F: FnOnce(&Expr),
+    {
+        match expr {
+            Expr::App(lhs, rhs) => {
+                assert_var(lhs, expected_name);
+                assert_arg(rhs);
+            }
+            other => panic!("expected application expression, got {other:?}"),
+        }
+    }
+
     #[test]
     fn parse_variable_identifier_success() {
         let expr = parse("abc_1").unwrap();
@@ -295,6 +308,37 @@ mod tests {
             }
             other => panic!("expected application expression, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn parse_application_parenthesized_single_argument_is_ordinary_application() {
+        let expr = parse("f(x)").unwrap();
+
+        assert_app_with_var_and_arg(&expr, "f", |arg| assert_var(arg, "x"));
+    }
+
+    #[test]
+    fn parse_application_whitespace_before_parentheses_is_equivalent() {
+        let expr = parse("f (x)").unwrap();
+
+        assert_left_assoc_var_app(&expr, &["f", "x"]);
+    }
+
+    #[test]
+    fn parse_application_parenthesized_expression_argument_stays_grouped() {
+        let expr = parse("f(x + 1)").unwrap();
+
+        assert_app_with_var_and_arg(&expr, "f", |arg| match arg {
+            Expr::App(lhs, rhs) => match lhs.as_ref() {
+                Expr::App(op, x) => {
+                    assert_op(op, Op::Add);
+                    assert_var(x, "x");
+                    assert_int(rhs, 1);
+                }
+                other => panic!("expected grouped additive head, got {other:?}"),
+            },
+            other => panic!("expected grouped additive argument, got {other:?}"),
+        });
     }
 
     #[test]
