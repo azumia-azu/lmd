@@ -105,7 +105,9 @@ fn normalize_bounded_ints(expr: Expr) -> Result<Expr, &'static str> {
                 (Expr::Op(Op::Neg), Expr::Literal(Literal::Number(Number::Int(v))))
                     if v == I64_MAX_PLUS_ONE =>
                 {
-                    Ok(Expr::Literal(Literal::Number(Number::Int(i64::MIN as i128))))
+                    Ok(Expr::Literal(Literal::Number(Number::Int(
+                        i64::MIN as i128,
+                    ))))
                 }
                 (lhs, _) if matches_non_callable_negative(&lhs) => {
                     Err("cannot apply a parenthesized negative expression")
@@ -121,7 +123,10 @@ fn normalize_bounded_ints(expr: Expr) -> Result<Expr, &'static str> {
             for (name, expr) in bindings {
                 normalized.push((name, normalize_bounded_ints(expr)?));
             }
-            Ok(Expr::Let(normalized, Box::new(normalize_bounded_ints(*body)?)))
+            Ok(Expr::Let(
+                normalized,
+                Box::new(normalize_bounded_ints(*body)?),
+            ))
         }
         Expr::If {
             cond,
@@ -565,20 +570,40 @@ mod tests {
     }
 
     #[test]
-    fn parse_prefix_operator_partial_then_apply() {
-        let expr = parse("(+ 1) 2").unwrap();
+    fn parse_rejects_parenthesized_operator_argument_sugar() {
+        let err = parse("(+ 1) 2").unwrap_err();
+        assert_eq!(err.kind, ParseErrorKind::UnexpectedToken);
+    }
+
+    #[test]
+    fn parse_parenthesized_operator_partial_application() {
+        let expr = parse("(+) 1").unwrap();
+        match &expr {
+            Expr::App(op, lhs) => {
+                assert_op(op, Op::Add);
+                assert_int(lhs, 1);
+            }
+            other => panic!("expected operator partial application, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parse_parenthesized_minus_operator_full_application() {
+        let expr = parse("(-) 1 2").unwrap();
         match &expr {
             Expr::App(f, rhs) => {
                 assert_int(rhs, 2);
                 match f.as_ref() {
                     Expr::App(op, lhs) => {
-                        assert_op(op, Op::Add);
+                        assert_op(op, Op::Sub);
                         assert_int(lhs, 1);
                     }
-                    other => panic!("expected partial prefix op as function, got {other:?}"),
+                    other => {
+                        panic!("expected left-associated minus operator application, got {other:?}")
+                    }
                 }
             }
-            other => panic!("expected final application, got {other:?}"),
+            other => panic!("expected application chain, got {other:?}"),
         }
     }
 

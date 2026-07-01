@@ -103,7 +103,6 @@ MulExpr: ast::Expr = {
 Atom: ast::Expr = {
     <l:Literal> => ast::Expr::Literal(l),
     <i: Ident> => ast::Expr::Var(i),
-    "(" <op: PrefixCallableOp> <arg: Expr> ")" => ast::mk_prefix(op, arg),
     "(" <op: Operator> ")" => ast::Expr::Op(op),
     "(" <e: Expr> ")" => e,
     "{" <e: Expr> "}" => e,
@@ -153,15 +152,6 @@ Operator: ast::Op = {
 BinaryOp: ast::Op = {
     <op:MulOp> => op,
     <op:AddOp> => op,
-    <op:CompareOp> => op,
-    <op:EqualOp> => op,
-    <op: AndOp> => op,
-    <op: OrOp> => op,
-};
-
-PrefixCallableOp: ast::Op = {
-    <op:MulOp> => op,
-    "+" => ast::Op::Add,
     <op:CompareOp> => op,
     <op:EqualOp> => op,
     <op: AndOp> => op,
